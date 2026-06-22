@@ -1,0 +1,36 @@
+services:
+  bastion:
+    build: .
+    container_name: bastion
+    restart: unless-stopped
+    ports:
+      - "${BASTION_PORT:-3000}:3000"
+    volumes:
+      - bastion-data:/app/data
+    environment:
+      PORT: "3000"
+      JWT_SECRET: ${JWT_SECRET:-changez-moi-en-production-avec-une-longue-chaine-aleatoire}
+      BASTION_ADMIN_USER: ${BASTION_ADMIN_USER:-admin}
+      BASTION_ADMIN_PASSWORD: ${BASTION_ADMIN_PASSWORD:-admin}
+      GUACD_HOST: guacd
+      GUACD_PORT: "4822"
+      DATABASE_PATH: /app/data/bastion.json
+    depends_on:
+      guacd:
+        condition: service_started
+    networks:
+      - bastion-net
+
+  guacd:
+    image: guacamole/guacd:1.6.0
+    container_name: bastion-guacd
+    restart: unless-stopped
+    networks:
+      - bastion-net
+
+volumes:
+  bastion-data:
+
+networks:
+  bastion-net:
+    driver: bridge
