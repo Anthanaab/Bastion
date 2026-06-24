@@ -38,8 +38,8 @@ function buildSettings(
     port: String(host.port),
     username,
     password: host.password ?? "",
-    width: "1280",
-    height: "720",
+    width: "1920",
+    height: "1080",
     dpi: "96",
     audio: ["audio/L16"],
     video: null,
@@ -52,12 +52,11 @@ function buildSettings(
   if (protocol === "rdp") {
     settings.security = securityMode ?? rdpSecurityModes()[0] ?? "nla";
     settings["ignore-cert"] = "true";
+    settings["disable-gfx"] = "true";
+    settings["color-depth"] = "24";
     settings["enable-wallpaper"] = "false";
     settings["enable-font-smoothing"] = "true";
     settings["resize-method"] = "display-update";
-    settings["server-layout"] = "fr-fr-azerty";
-    settings["color-depth"] = "16";
-    settings["disable-gfx"] = "true";
   } else {
     settings["color-depth"] = "24";
     settings.cursor = "remote";

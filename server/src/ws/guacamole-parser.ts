@@ -19,10 +19,10 @@ function codePointCount(str: string): number {
   return str.length - (pairs ? pairs.length : 0);
 }
 
-function readInstruction(
+export function readInstruction(
   message: string,
   startIndex: number
-): { opcode: string; raw: string; end: number } | null {
+): { opcode: string; params: string[]; raw: string; end: number } | null {
   let index = startIndex;
   const elements: string[] = [];
   let prevEnd = startIndex - 1;
@@ -45,7 +45,12 @@ function readInstruction(
     if (terminator === ";") {
       const opcode = elements.shift() ?? "";
       const rawEnd = elementEnd + 1;
-      return { opcode, raw: message.substring(startIndex, rawEnd), end: rawEnd };
+      return {
+        opcode,
+        params: [...elements],
+        raw: message.substring(startIndex, rawEnd),
+        end: rawEnd,
+      };
     }
 
     if (terminator !== ",") return null;

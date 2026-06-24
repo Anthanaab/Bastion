@@ -1,6 +1,6 @@
 import net from "net";
 import { EventEmitter } from "events";
-import { GuacamoleParser, toInstruction } from "./guacamole-parser";
+import { readInstruction, toInstruction } from "./guacamole-parser";
 
 export interface GuacdOptions {
   host: string;
@@ -19,8 +19,9 @@ const STATE_CLOSED = 2;
 export class GuacdClient extends EventEmitter {
   private state = STATE_OPENING;
   private sendBuffer = "";
+  private inboundBuffer = "";
+  private rawMode = false;
   private guacamoleConnectionId: string | null = null;
-  private readonly parser = new GuacamoleParser();
   private readonly socket: net.Socket;
 
   constructor(
@@ -34,16 +35,53 @@ export class GuacdClient extends EventEmitter {
       guacdOptions.host
     );
 
-    this.parser.oninstruction = (opcode, params) => {
-      this.processInstruction(opcode, params);
-    };
-
     this.socket.on("connect", () => {
       this.sendInstruction(["select", this.connectionSelector]);
     });
 
     this.socket.on("data", (chunk) => {
-      this.parser.receive(chunk.toString("utf8"));
+      this.inboundBuffer += chunk.toString("utf8");
+
+      if (this.rawMode) {
+        const data = this.inboundBuffer;
+        this.inboundBuffer = "";
+        if (data) this.emit("data", data);
+        return;
+      }
+
+      while (this.inboundBuffer.length > 0) {
+        const instruction = readInstruction(this.inboundBuffer, 0);
+        if (!instruction) break;
+
+        this.inboundBuffer = this.inboundBuffer.slice(instruction.end);
+
+        if (instruction.opcode === "args") {
+          this.sendHandshakeReply(instruction.params);
+          continue;
+        }
+
+        if (instruction.opcode === "ready") {
+          this.guacamoleConnectionId = instruction.params[0] ?? null;
+          this.state = STATE_OPEN;
+          this.rawMode = true;
+          this.emit("open", this.guacamoleConnectionId);
+
+          if (this.sendBuffer) {
+            this.send(this.sendBuffer);
+            this.sendBuffer = "";
+          }
+
+          this.emit("data", toInstruction(["", this.guacamoleConnectionId ?? ""]));
+
+          if (this.inboundBuffer.length > 0) {
+            this.emit("data", this.inboundBuffer);
+            this.inboundBuffer = "";
+          }
+          break;
+        }
+
+        this.emit("data", instruction.raw);
+      }
     });
 
     this.socket.on("error", (err: Error) => {
@@ -146,10 +184,7 @@ export class GuacdClient extends EventEmitter {
       Array.isArray(audio) ? ["audio", ...audio] : ["audio"]
     );
 
-    const video = this.connectionSettings.video;
-    this.sendInstruction(
-      Array.isArray(video) && video.length ? ["video", ...video] : ["video"]
-    );
+    this.sendInstruction(["video"]);
 
     const image = this.connectionSettings.image;
     this.sendInstruction(
@@ -158,34 +193,9 @@ export class GuacdClient extends EventEmitter {
 
     if (protocolVersion === "1_1_0") {
       const tz = this.connectionSettings.timezone;
-      this.sendInstruction(
-        tz ? ["timezone", tz] : ["timezone"]
-      );
+      this.sendInstruction(tz ? ["timezone", tz] : ["timezone"]);
     }
 
     this.sendInstruction(["connect", ...connectArgs]);
-  }
-
-  private processInstruction(opcode: string, params: string[]): void {
-    if (opcode === "args") {
-      this.sendHandshakeReply(params);
-      return;
-    }
-
-    if (opcode === "ready") {
-      this.guacamoleConnectionId = params[0];
-      this.state = STATE_OPEN;
-      this.emit("open", this.guacamoleConnectionId);
-
-      if (this.sendBuffer) {
-        this.send(this.sendBuffer);
-        this.sendBuffer = "";
-      }
-
-      this.emit("data", toInstruction(["", this.guacamoleConnectionId]));
-      return;
-    }
-
-    this.emit("data", toInstruction([opcode, ...params]));
   }
 }
