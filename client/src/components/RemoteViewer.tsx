@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import Guacamole from "guacamole-common-js";
-import { wsUrl } from "../lib/api";
+import { api, wsUrl } from "../lib/api";
 
 function getElement(value: string): string {
   return `${value.length}.${value}`;
@@ -47,6 +47,8 @@ function parseInstructionMessage(
 class BastionTunnel extends Guacamole.Tunnel {
   private socket: WebSocket | null = null;
   private activityTimer: ReturnType<typeof setTimeout> | null = null;
+  onWebSocketOpen?: () => void;
+  onWebSocketClose?: (code: number) => void;
 
   constructor(private readonly url: string) {
     super();
@@ -55,6 +57,10 @@ class BastionTunnel extends Guacamole.Tunnel {
   connect(_data?: string): void {
     this.setState(Guacamole.Tunnel.State.CONNECTING);
     this.socket = new WebSocket(this.url);
+
+    this.socket.onopen = () => {
+      this.onWebSocketOpen?.();
+    };
 
     this.socket.onmessage = (event) => {
       if (this.activityTimer) {
@@ -88,6 +94,7 @@ class BastionTunnel extends Guacamole.Tunnel {
     };
 
     this.socket.onclose = (event) => {
+      this.onWebSocketClose?.(event.code);
       this.setState(Guacamole.Tunnel.State.CLOSED);
       if (event.code !== 1000) {
         this.onerror?.(
@@ -150,86 +157,141 @@ export default function RemoteViewer({ hostId }: RemoteViewerProps) {
   useEffect(() => {
     if (!containerRef.current) return;
 
-    const tunnel = new BastionTunnel(wsUrl("/ws/guacd", { hostId }));
-    const client = new Guacamole.Client(tunnel);
-    const display = client.getDisplay();
-    const element = display.getElement();
+    let cancelled = false;
+    let cleanup: (() => void) | undefined;
 
-    containerRef.current.innerHTML = "";
-    containerRef.current.appendChild(element);
-
-    const mouse = new Guacamole.Mouse(element);
-    mouse.onmousedown =
-      mouse.onmouseup =
-      mouse.onmousemove =
-        (mouseState: Guacamole.Mouse.State) => {
-          client.sendMouseState(mouseState, true);
-        };
-
-    const keyboard = new Guacamole.Keyboard(document);
-    keyboard.onkeydown = (keysym: number) => client.sendKeyEvent(1, keysym);
-    keyboard.onkeyup = (keysym: number) => client.sendKeyEvent(0, keysym);
-
-    const scale = () => {
-      const container = containerRef.current;
-      if (!container) return;
-      const dw = display.getWidth();
-      const dh = display.getHeight();
-      if (dw && dh) {
-        display.scale(
-          Math.min(container.clientWidth / dw, container.clientHeight / dh)
-        );
-      }
-    };
-
-    tunnel.onstatechange = (state: number) => {
-      if (state === Guacamole.Tunnel.State.CONNECTING) {
-        setStatus("Connexion au serveur…");
-      } else if (state === Guacamole.Tunnel.State.OPEN) {
-        setStatus("Ouverture du bureau distant…");
-      }
-    };
-
-    client.onstatechange = (state: number) => {
-      if (state === Guacamole.Client.State.CONNECTED) {
-        setStatus("Connecté");
-        setError("");
-        scale();
-      } else if (state === Guacamole.Client.State.WAITING) {
-        setStatus("Ouverture du bureau distant…");
-      } else if (state === Guacamole.Client.State.DISCONNECTED) {
-        setStatus("Déconnecté");
-      }
-    };
-
-    client.onerror = (err: Guacamole.Status) => {
-      setError(err.message || "Erreur de connexion distante");
-    };
-
-    client.connect("");
-
-    const timeout = window.setTimeout(() => {
-      if (client.getDisplay().getWidth() === 0) {
+    const start = async () => {
+      try {
+        const ping = await api.sessionPing(hostId);
+        if (cancelled) return;
+        setStatus(`Serveur OK (v${ping.version}) — connexion WebSocket…`);
+      } catch (err) {
+        if (cancelled) return;
         setError(
-          "Délai dépassé — vérifiez IP/port, identifiants, et que guacd tourne"
+          err instanceof Error
+            ? err.message
+            : "Impossible de joindre l'API Bastion"
         );
+        return;
       }
-    }, 30000);
 
-    const resizeObserver = new ResizeObserver(() => {
-      scale();
-      const container = containerRef.current;
-      if (container && display.getWidth()) {
-        client.sendSize(container.clientWidth, container.clientHeight);
-      }
-    });
-    resizeObserver.observe(containerRef.current);
+      if (cancelled || !containerRef.current) return;
+
+      const wsTarget = wsUrl("/ws/guacd", { hostId });
+      console.info("[Bastion] WebSocket:", wsTarget);
+
+      const tunnel = new BastionTunnel(wsTarget);
+      let wsOpen = false;
+      let guacdReady = false;
+      const client = new Guacamole.Client(tunnel);
+      const display = client.getDisplay();
+      const element = display.getElement();
+
+      containerRef.current.innerHTML = "";
+      containerRef.current.appendChild(element);
+
+      const mouse = new Guacamole.Mouse(element);
+      mouse.onmousedown =
+        mouse.onmouseup =
+        mouse.onmousemove =
+          (mouseState: Guacamole.Mouse.State) => {
+            client.sendMouseState(mouseState, true);
+          };
+
+      const keyboard = new Guacamole.Keyboard(document);
+      keyboard.onkeydown = (keysym: number) => client.sendKeyEvent(1, keysym);
+      keyboard.onkeyup = (keysym: number) => client.sendKeyEvent(0, keysym);
+
+      const scale = () => {
+        const container = containerRef.current;
+        if (!container) return;
+        const dw = display.getWidth();
+        const dh = display.getHeight();
+        if (dw && dh) {
+          display.scale(
+            Math.min(container.clientWidth / dw, container.clientHeight / dh)
+          );
+        }
+      };
+
+      tunnel.onWebSocketOpen = () => {
+        wsOpen = true;
+        setStatus("WebSocket OK — handshake guacd…");
+      };
+
+      tunnel.onWebSocketClose = (code) => {
+        if (!guacdReady) {
+          setError(
+            code === 1006
+              ? "WebSocket coupée — activez « Websockets Support » dans Nginx Proxy Manager"
+              : `WebSocket fermée (code ${code})`
+          );
+        }
+      };
+
+      tunnel.onstatechange = (state: number) => {
+        if (state === Guacamole.Tunnel.State.OPEN) {
+          guacdReady = true;
+          setStatus("Ouverture du bureau distant…");
+        }
+      };
+
+      client.onstatechange = (state: number) => {
+        if (state === Guacamole.Client.State.CONNECTED) {
+          setStatus("Connecté");
+          setError("");
+          scale();
+        } else if (state === Guacamole.Client.State.DISCONNECTED && guacdReady) {
+          setStatus("Déconnecté");
+        }
+      };
+
+      client.onerror = (err: Guacamole.Status) => {
+        setError(err.message || "Erreur de connexion distante");
+      };
+
+      setStatus("Connexion WebSocket…");
+      client.connect("");
+
+      const wsTimeout = window.setTimeout(() => {
+        if (!wsOpen) {
+          setError(
+            "WebSocket bloquée — testez http://IP:3000 en direct ou activez Websockets dans NPM"
+          );
+        }
+      }, 8000);
+
+      const timeout = window.setTimeout(() => {
+        if (client.getDisplay().getWidth() === 0) {
+          setError(
+            "Délai dépassé — WebSocket ou identifiants RDP à vérifier"
+          );
+        }
+      }, 30000);
+
+      const resizeObserver = new ResizeObserver(() => {
+        scale();
+        const container = containerRef.current;
+        if (container && display.getWidth()) {
+          client.sendSize(container.clientWidth, container.clientHeight);
+        }
+      });
+      resizeObserver.observe(containerRef.current);
+
+      cleanup = () => {
+        window.clearTimeout(wsTimeout);
+        window.clearTimeout(timeout);
+        resizeObserver.disconnect();
+        keyboard.onkeydown = keyboard.onkeyup = null;
+        client.disconnect();
+      };
+    };
+
+    start();
 
     return () => {
-      window.clearTimeout(timeout);
-      resizeObserver.disconnect();
-      keyboard.onkeydown = keyboard.onkeyup = null;
-      client.disconnect();
+      cancelled = true;
+      cleanup?.();
     };
   }, [hostId]);
 

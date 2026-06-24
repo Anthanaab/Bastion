@@ -72,6 +72,12 @@ export const api = {
 
   deleteHost: (id: string) =>
     request<{ ok: boolean }>(`/hosts/${id}`, { method: "DELETE" }),
+
+  sessionPing: (hostId: string) =>
+    request<{ ok: boolean; version: string; wsPath: string }>("/sessions/ping", {
+      method: "POST",
+      body: JSON.stringify({ hostId }),
+    }),
 };
 
 export function wsUrl(path: string, params: Record<string, string>): string {

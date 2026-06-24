@@ -43,19 +43,34 @@ app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: "1mb" }));
 app.use(cookieParser());
 
+app.use((req, _res, next) => {
+  if (req.path.startsWith("/api") || req.path.startsWith("/ws")) {
+    console.log(`[HTTP] ${req.method} ${req.originalUrl.split("?")[0]}`);
+  }
+  next();
+});
+
 app.use("/api", apiRouter);
 
 app.get("/api/health", (_req, res) => {
   res.json({
     status: "ok",
     name: "Bastion",
-    version: "1.0.1",
+    version: "1.0.4",
     guacd: { host: GUACD_HOST, port: GUACD_PORT },
   });
 });
 
 const clientDist = path.join(process.cwd(), "client", "dist");
-app.use(express.static(clientDist));
+app.use(
+  express.static(clientDist, {
+    setHeaders(res, filePath) {
+      if (filePath.endsWith("index.html")) {
+        res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+      }
+    },
+  })
+);
 app.get("*", (req, res, next) => {
   if (req.path.startsWith("/api") || req.path.startsWith("/ws")) {
     next();
@@ -95,6 +110,7 @@ server.listen(PORT, () => {
   ║   Passerelle d'accès distant         ║
   ╠══════════════════════════════════════╣
   ║  http://localhost:${String(PORT).padEnd(19)}║
+  ║  Version : 1.0.4${" ".repeat(22)}║
   ║  Admin : ${ADMIN_USER.padEnd(27)}║
   ╚══════════════════════════════════════╝
   `);

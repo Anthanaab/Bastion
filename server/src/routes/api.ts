@@ -143,6 +143,22 @@ router.delete("/hosts/:id", authMiddleware, (req, res) => {
   res.json({ ok: true });
 });
 
+router.post("/sessions/ping", authMiddleware, (req, res) => {
+  const hostId = req.body?.hostId as string | undefined;
+  const host = hostId ? getHost(hostId) : undefined;
+  console.log(
+    `[Session] ping ${host?.protocol ?? "?"} → ${host?.hostname ?? hostId} (user: ${req.user!.username})`
+  );
+  res.json({
+    ok: true,
+    version: "1.0.4",
+    host: host
+      ? { id: host.id, name: host.name, protocol: host.protocol }
+      : null,
+    wsPath: "/ws/guacd",
+  });
+});
+
 export default router;
 
 export { hostSchema };
