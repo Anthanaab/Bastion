@@ -46,7 +46,12 @@ app.use(cookieParser());
 app.use("/api", apiRouter);
 
 app.get("/api/health", (_req, res) => {
-  res.json({ status: "ok", name: "Bastion", version: "1.0.0" });
+  res.json({
+    status: "ok",
+    name: "Bastion",
+    version: "1.0.1",
+    guacd: { host: GUACD_HOST, port: GUACD_PORT },
+  });
 });
 
 const clientDist = path.join(process.cwd(), "client", "dist");
@@ -68,14 +73,17 @@ server.on("upgrade", (request, socket, head) => {
   const url = request.url ?? "";
 
   if (url.startsWith("/ws/ssh")) {
+    console.log(`[WS] Upgrade SSH ${url.split("?")[0]}`);
     wss.handleUpgrade(request, socket, head, (ws) => {
       handleSshConnection(ws, url);
     });
   } else if (url.startsWith("/ws/guacd")) {
+    console.log(`[WS] Upgrade guacd ${url.split("?")[0]}`);
     wss.handleUpgrade(request, socket, head, (ws) => {
       handleGuacdConnection(ws, url, GUACD_HOST, GUACD_PORT);
     });
   } else {
+    console.log(`[WS] Upgrade refusé : ${url}`);
     socket.destroy();
   }
 });

@@ -87,15 +87,23 @@ class BastionTunnel extends Guacamole.Tunnel {
       });
     };
 
-    this.socket.onclose = () => {
+    this.socket.onclose = (event) => {
       this.setState(Guacamole.Tunnel.State.CLOSED);
+      if (event.code !== 1000) {
+        this.onerror?.(
+          new Guacamole.Status(
+            Guacamole.Status.Code.SERVER_ERROR,
+            `WebSocket fermé (code ${event.code})`
+          )
+        );
+      }
     };
 
     this.socket.onerror = () => {
       this.onerror?.(
         new Guacamole.Status(
           Guacamole.Status.Code.SERVER_ERROR,
-          "Erreur WebSocket"
+          "WebSocket impossible — si vous utilisez un reverse proxy, activez le support WebSocket"
         )
       );
       this.setState(Guacamole.Tunnel.State.CLOSED);

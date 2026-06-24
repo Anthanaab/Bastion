@@ -56,8 +56,11 @@ export function handleGuacdConnection(
   guacdHost: string,
   guacdPort: number
 ): void {
+  console.log("[Guacd] Nouvelle connexion WebSocket");
+
   const user = wsAuthFromUrl(url);
   if (!user) {
+    console.error("[Guacd] Auth WebSocket échouée (token manquant ou expiré)");
     ws.close(4001, "Non authentifié");
     return;
   }
