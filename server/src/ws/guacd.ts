@@ -1,6 +1,7 @@
+import type { IncomingMessage } from "http";
 import { WebSocket } from "ws";
 import { getHost, createSession, endSession } from "../db";
-import { wsAuthFromUrl } from "../auth";
+import { wsAuthFromRequest } from "../auth";
 import { GuacdClient, type ConnectionSettings } from "./guacd-client";
 import { toInstruction } from "./guacamole-parser";
 
@@ -52,15 +53,16 @@ function buildSettings(
 
 export function handleGuacdConnection(
   ws: WebSocket,
-  url: string,
+  request: IncomingMessage,
   guacdHost: string,
   guacdPort: number
 ): void {
+  const url = request.url ?? "";
   console.log("[Guacd] Nouvelle connexion WebSocket");
 
-  const user = wsAuthFromUrl(url);
+  const user = wsAuthFromRequest(url, request.headers.cookie);
   if (!user) {
-    console.error("[Guacd] Auth WebSocket échouée (token manquant ou expiré)");
+    console.error("[Guacd] Auth WebSocket échouée (token/cookie manquant ou expiré)");
     ws.close(4001, "Non authentifié");
     return;
   }

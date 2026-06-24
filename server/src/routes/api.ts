@@ -51,7 +51,7 @@ router.post("/login", (req, res) => {
   res.cookie("bastion_token", token, {
     httpOnly: true,
     sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    secure: process.env.BASTION_COOKIE_SECURE === "true",
     maxAge: 7 * 24 * 60 * 60 * 1000,
   });
   res.json({ token, user: { username: user.username } });
@@ -151,7 +151,7 @@ router.post("/sessions/ping", authMiddleware, (req, res) => {
   );
   res.json({
     ok: true,
-    version: "1.0.4",
+    version: "1.0.5",
     host: host
       ? { id: host.id, name: host.name, protocol: host.protocol }
       : null,

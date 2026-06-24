@@ -3,6 +3,7 @@ import cookieParser from "cookie-parser";
 import cors from "cors";
 import path from "path";
 import http from "http";
+import { parse as parseUrl } from "url";
 import fs from "fs";
 import { WebSocketServer } from "ws";
 import {
@@ -56,7 +57,7 @@ app.get("/api/health", (_req, res) => {
   res.json({
     status: "ok",
     name: "Bastion",
-    version: "1.0.4",
+    version: "1.0.5",
     guacd: { host: GUACD_HOST, port: GUACD_PORT },
   });
 });
@@ -85,20 +86,20 @@ const server = http.createServer(app);
 const wss = new WebSocketServer({ noServer: true });
 
 server.on("upgrade", (request, socket, head) => {
-  const url = request.url ?? "";
+  const pathname = parseUrl(request.url ?? "").pathname ?? "";
+  const hasCookie = Boolean(request.headers.cookie?.includes("bastion_token"));
 
-  if (url.startsWith("/ws/ssh")) {
-    console.log(`[WS] Upgrade SSH ${url.split("?")[0]}`);
+  if (pathname === "/ws/ssh" || pathname === "/ws/guacd") {
+    console.log(`[WS] Upgrade ${pathname} (cookie: ${hasCookie ? "oui" : "non"})`);
     wss.handleUpgrade(request, socket, head, (ws) => {
-      handleSshConnection(ws, url);
-    });
-  } else if (url.startsWith("/ws/guacd")) {
-    console.log(`[WS] Upgrade guacd ${url.split("?")[0]}`);
-    wss.handleUpgrade(request, socket, head, (ws) => {
-      handleGuacdConnection(ws, url, GUACD_HOST, GUACD_PORT);
+      if (pathname === "/ws/ssh") {
+        handleSshConnection(ws, request);
+      } else {
+        handleGuacdConnection(ws, request, GUACD_HOST, GUACD_PORT);
+      }
     });
   } else {
-    console.log(`[WS] Upgrade refusé : ${url}`);
+    console.log(`[WS] Upgrade refusé : ${pathname || request.url}`);
     socket.destroy();
   }
 });
@@ -110,7 +111,7 @@ server.listen(PORT, () => {
   ║   Passerelle d'accès distant         ║
   ╠══════════════════════════════════════╣
   ║  http://localhost:${String(PORT).padEnd(19)}║
-  ║  Version : 1.0.4${" ".repeat(22)}║
+  ║  Version : 1.0.5${" ".repeat(22)}║
   ║  Admin : ${ADMIN_USER.padEnd(27)}║
   ╚══════════════════════════════════════╝
   `);

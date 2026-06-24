@@ -56,13 +56,24 @@ export function authMiddleware(
   }
 }
 
-export function wsAuthFromUrl(url: string): AuthPayload | null {
+export function wsAuthFromRequest(
+  url: string,
+  cookieHeader?: string
+): AuthPayload | null {
   try {
     const params = new URL(url, "http://localhost").searchParams;
-    const token = params.get("token");
+    let token = params.get("token")?.trim();
+    if (!token && cookieHeader) {
+      const match = cookieHeader.match(/(?:^|;\s*)bastion_token=([^;]+)/);
+      if (match?.[1]) token = decodeURIComponent(match[1]);
+    }
     if (!token) return null;
     return verifyToken(token);
   } catch {
     return null;
   }
+}
+
+export function wsAuthFromUrl(url: string): AuthPayload | null {
+  return wsAuthFromRequest(url);
 }

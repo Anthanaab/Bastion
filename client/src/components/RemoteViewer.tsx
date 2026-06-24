@@ -220,13 +220,14 @@ export default function RemoteViewer({ hostId }: RemoteViewerProps) {
       };
 
       tunnel.onWebSocketClose = (code) => {
-        if (!guacdReady) {
-          setError(
-            code === 1006
-              ? "WebSocket coupée — activez « Websockets Support » dans Nginx Proxy Manager"
-              : `WebSocket fermée (code ${code})`
-          );
-        }
+        if (guacdReady) return;
+        const messages: Record<number, string> = {
+          4001: "Session expirée — déconnectez-vous puis reconnectez-vous",
+          4002: "Paramètre hostId manquant",
+          4003: "Hôte RDP/VNC introuvable",
+          1006: "WebSocket impossible — reconnectez-vous ou vérifiez le réseau",
+        };
+        setError(messages[code] ?? `WebSocket fermée (code ${code})`);
       };
 
       tunnel.onstatechange = (state: number) => {

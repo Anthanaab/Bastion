@@ -1,11 +1,14 @@
+import type { IncomingMessage } from "http";
 import { Client } from "ssh2";
 import { WebSocket } from "ws";
 import { getHost, createSession, endSession } from "../db";
-import { wsAuthFromUrl } from "../auth";
+import { wsAuthFromRequest } from "../auth";
 
-export function handleSshConnection(ws: WebSocket, url: string): void {
-  const user = wsAuthFromUrl(url);
+export function handleSshConnection(ws: WebSocket, request: IncomingMessage): void {
+  const url = request.url ?? "";
+  const user = wsAuthFromRequest(url, request.headers.cookie);
   if (!user) {
+    console.error("[SSH] Auth WebSocket échouée");
     ws.close(4001, "Non authentifié");
     return;
   }
