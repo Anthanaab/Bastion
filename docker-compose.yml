@@ -15,6 +15,7 @@ services:
       GUACD_HOST: guacd
       GUACD_PORT: "4822"
       DATABASE_PATH: /app/data/bastion.json
+      BASTION_RDP_SECURITY: ${BASTION_RDP_SECURITY:-nla}
     depends_on:
       guacd:
         condition: service_started
@@ -25,11 +26,16 @@ services:
     image: guacamole/guacd:1.6.0
     container_name: bastion-guacd
     restart: unless-stopped
+    environment:
+      HOME: /var/lib/guacd
+    volumes:
+      - guacd-home:/var/lib/guacd
     networks:
       - bastion-net
 
 volumes:
   bastion-data:
+  guacd-home:
 
 networks:
   bastion-net:

@@ -35,14 +35,13 @@ function buildSettings(
   if (domain) settings.domain = domain;
 
   if (protocol === "rdp") {
-    settings.security = "any";
+    const security = process.env.BASTION_RDP_SECURITY ?? "nla";
+    settings.security = security;
     settings["ignore-cert"] = "true";
-    settings["ignore_cert"] = "true";
+    settings["cert-tofu"] = "true";
     settings["enable-wallpaper"] = "false";
     settings["enable-font-smoothing"] = "true";
     settings["resize-method"] = "display-update";
-    settings["disable-auth"] = "";
-    settings["console"] = "";
   } else {
     settings["color-depth"] = "24";
     settings.cursor = "remote";
