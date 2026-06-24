@@ -87,6 +87,10 @@ export default function RemoteViewer({ hostId }: RemoteViewerProps) {
         if (state === Guacamole.Client.State.CONNECTED) {
           setStatus("Connecté");
           setError("");
+          const container = containerRef.current;
+          if (container) {
+            client.sendSize(container.clientWidth, container.clientHeight);
+          }
           scale();
         } else if (state === Guacamole.Client.State.DISCONNECTED && guacdReady) {
           setStatus("Déconnecté");

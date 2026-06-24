@@ -28,12 +28,9 @@ services:
     restart: unless-stopped
     environment:
       HOME: /home/guacd
-      GUACD_LOG_LEVEL: debug
+      GUACD_LOG_LEVEL: info
     volumes:
       - guacd-home:/home/guacd
-    entrypoint: ["/bin/sh", "-c"]
-    command:
-      - "mkdir -p /home/guacd/.config/freerdp && exec /opt/guacamole/sbin/guacd -f -b 0.0.0.0 -L debug"
     networks:
       - bastion-net
 

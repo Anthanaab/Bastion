@@ -19,6 +19,60 @@ function codePointCount(str: string): number {
   return str.length - (pairs ? pairs.length : 0);
 }
 
+function readInstruction(
+  message: string,
+  startIndex: number
+): { opcode: string; raw: string; end: number } | null {
+  let index = startIndex;
+  const elements: string[] = [];
+  let prevEnd = startIndex - 1;
+
+  do {
+    const lengthEnd = message.indexOf(".", index);
+    if (lengthEnd === -1) return null;
+
+    const length = parseInt(message.substring(prevEnd + 1, lengthEnd), 10);
+    if (Number.isNaN(length)) return null;
+
+    index = lengthEnd + 1;
+    const elementEnd = index + length;
+    if (elementEnd > message.length) return null;
+
+    const element = message.substring(index, elementEnd);
+    const terminator = message.substring(elementEnd, elementEnd + 1);
+    elements.push(element);
+
+    if (terminator === ";") {
+      const opcode = elements.shift() ?? "";
+      const rawEnd = elementEnd + 1;
+      return { opcode, raw: message.substring(startIndex, rawEnd), end: rawEnd };
+    }
+
+    if (terminator !== ",") return null;
+    prevEnd = elementEnd;
+    index = elementEnd + 1;
+  } while (index < message.length);
+
+  return null;
+}
+
+/** Ignore tunnel-internal pings (empty opcode) — guacd cannot handle them. */
+export function filterInstructionsForGuacd(message: string): string {
+  const kept: string[] = [];
+  let index = 0;
+
+  while (index < message.length) {
+    const instruction = readInstruction(message, index);
+    if (!instruction) break;
+    if (instruction.opcode.length > 0) {
+      kept.push(instruction.raw);
+    }
+    index = instruction.end;
+  }
+
+  return kept.join("");
+}
+
 export class GuacamoleParser {
   private buffer = "";
   private elementBuffer: string[] = [];
