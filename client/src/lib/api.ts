@@ -80,10 +80,19 @@ export const api = {
     }),
 };
 
-export function wsUrl(path: string, params: Record<string, string>): string {
-  const token = getToken();
+export function wsBaseUrl(path: string): string {
   const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-  const host = window.location.host;
-  const qs = new URLSearchParams({ ...params, token: token ?? "" });
-  return `${proto}//${host}${path}?${qs}`;
+  return `${proto}//${window.location.host}${path}`;
+}
+
+export function wsConnectData(params: Record<string, string>): string {
+  const qs = new URLSearchParams(params);
+  const token = getToken();
+  if (token) qs.set("token", token);
+  return qs.toString();
+}
+
+export function wsUrl(path: string, params: Record<string, string>): string {
+  const qs = wsConnectData(params);
+  return `${wsBaseUrl(path)}?${qs}`;
 }

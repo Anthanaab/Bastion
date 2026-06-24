@@ -57,7 +57,7 @@ app.get("/api/health", (_req, res) => {
   res.json({
     status: "ok",
     name: "Bastion",
-    version: "1.0.5",
+    version: "1.0.6",
     guacd: { host: GUACD_HOST, port: GUACD_PORT },
   });
 });
@@ -83,7 +83,13 @@ app.get("*", (req, res, next) => {
 });
 
 const server = http.createServer(app);
-const wss = new WebSocketServer({ noServer: true });
+const wss = new WebSocketServer({
+  noServer: true,
+  handleProtocols: (protocols) => {
+    if (protocols.has("guacamole")) return "guacamole";
+    return protocols.values().next().value ?? false;
+  },
+});
 
 server.on("upgrade", (request, socket, head) => {
   const pathname = parseUrl(request.url ?? "").pathname ?? "";
@@ -111,7 +117,7 @@ server.listen(PORT, () => {
   ║   Passerelle d'accès distant         ║
   ╠══════════════════════════════════════╣
   ║  http://localhost:${String(PORT).padEnd(19)}║
-  ║  Version : 1.0.5${" ".repeat(22)}║
+  ║  Version : 1.0.6${" ".repeat(22)}║
   ║  Admin : ${ADMIN_USER.padEnd(27)}║
   ╚══════════════════════════════════════╝
   `);

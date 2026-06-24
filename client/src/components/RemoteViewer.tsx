@@ -1,148 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import Guacamole from "guacamole-common-js";
-import { api, wsUrl } from "../lib/api";
-
-function getElement(value: string): string {
-  return `${value.length}.${value}`;
-}
-
-function parseInstructionMessage(
-  message: string,
-  onInstruction: (opcode: string, elements: string[]) => void
-): void {
-  let startIndex = 0;
-  let elementEnd: number | undefined;
-  const elements: string[] = [];
-
-  do {
-    const lengthEnd = message.indexOf(".", startIndex);
-    if (lengthEnd === -1) return;
-
-    const length = parseInt(
-      message.substring((elementEnd ?? -1) + 1, lengthEnd),
-      10
-    );
-    startIndex = lengthEnd + 1;
-    elementEnd = startIndex + length;
-
-    if (elementEnd > message.length) return;
-
-    const element = message.substring(startIndex, elementEnd);
-    const terminator = message.substring(elementEnd, elementEnd + 1);
-    elements.push(element);
-
-    if (terminator === ";") {
-      const opcode = elements.shift() ?? "";
-      onInstruction(opcode, [...elements]);
-      elements.length = 0;
-    } else if (terminator !== ",") {
-      return;
-    }
-
-    startIndex = elementEnd + 1;
-  } while (startIndex < message.length);
-}
-
-/** Tunnel WebSocket compatible guacamole-common-js (modèle guacamole-lite). */
-class BastionTunnel extends Guacamole.Tunnel {
-  private socket: WebSocket | null = null;
-  private activityTimer: ReturnType<typeof setTimeout> | null = null;
-  onWebSocketOpen?: () => void;
-  onWebSocketClose?: (code: number) => void;
-
-  constructor(private readonly url: string) {
-    super();
-  }
-
-  connect(_data?: string): void {
-    this.setState(Guacamole.Tunnel.State.CONNECTING);
-    this.socket = new WebSocket(this.url);
-
-    this.socket.onopen = () => {
-      this.onWebSocketOpen?.();
-    };
-
-    this.socket.onmessage = (event) => {
-      if (this.activityTimer) {
-        clearTimeout(this.activityTimer);
-        this.activityTimer = null;
-      }
-
-      const message =
-        typeof event.data === "string"
-          ? event.data
-          : new TextDecoder().decode(event.data as ArrayBuffer);
-
-      parseInstructionMessage(message, (opcode, elements) => {
-        if (this.uuid === null) {
-          if (
-            opcode === Guacamole.Tunnel.INTERNAL_DATA_OPCODE &&
-            elements.length === 1
-          ) {
-            this.setUUID(elements[0]);
-          }
-          this.setState(Guacamole.Tunnel.State.OPEN);
-        }
-
-        if (
-          opcode !== Guacamole.Tunnel.INTERNAL_DATA_OPCODE &&
-          this.oninstruction
-        ) {
-          this.oninstruction(opcode, elements);
-        }
-      });
-    };
-
-    this.socket.onclose = (event) => {
-      this.onWebSocketClose?.(event.code);
-      this.setState(Guacamole.Tunnel.State.CLOSED);
-      if (event.code !== 1000) {
-        this.onerror?.(
-          new Guacamole.Status(
-            Guacamole.Status.Code.SERVER_ERROR,
-            `WebSocket fermé (code ${event.code})`
-          )
-        );
-      }
-    };
-
-    this.socket.onerror = () => {
-      this.onerror?.(
-        new Guacamole.Status(
-          Guacamole.Status.Code.SERVER_ERROR,
-          "WebSocket impossible — si vous utilisez un reverse proxy, activez le support WebSocket"
-        )
-      );
-      this.setState(Guacamole.Tunnel.State.CLOSED);
-    };
-  }
-
-  sendMessage(...elements: string[]): void {
-    if (!this.isConnected() || elements.length === 0) return;
-    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) return;
-
-    let instruction = getElement(elements[0]);
-    for (let i = 1; i < elements.length; i++) {
-      instruction += "," + getElement(elements[i]);
-    }
-    instruction += ";";
-
-    this.socket.send(instruction);
-
-    this.activityTimer = setTimeout(() => {
-      this.onerror?.(
-        new Guacamole.Status(Guacamole.Status.Code.UPSTREAM_TIMEOUT)
-      );
-    }, this.receiveTimeout || 15000);
-  }
-
-  disconnect(): void {
-    if (this.activityTimer) clearTimeout(this.activityTimer);
-    this.socket?.close();
-    this.socket = null;
-    this.setState(Guacamole.Tunnel.State.CLOSED);
-  }
-}
+import { api, wsBaseUrl, wsConnectData } from "../lib/api";
 
 interface RemoteViewerProps {
   hostId: string;
@@ -177,11 +35,13 @@ export default function RemoteViewer({ hostId }: RemoteViewerProps) {
 
       if (cancelled || !containerRef.current) return;
 
-      const wsTarget = wsUrl("/ws/guacd", { hostId });
-      console.info("[Bastion] WebSocket:", wsTarget);
+      const tunnel = new Guacamole.WebSocketTunnel(wsBaseUrl("/ws/guacd"));
+      const connectData = wsConnectData({ hostId });
+      console.info(
+        "[Bastion] WebSocket:",
+        `${wsBaseUrl("/ws/guacd")}?${connectData}`
+      );
 
-      const tunnel = new BastionTunnel(wsTarget);
-      let wsOpen = false;
       let guacdReady = false;
       const client = new Guacamole.Client(tunnel);
       const display = client.getDisplay();
@@ -214,24 +74,10 @@ export default function RemoteViewer({ hostId }: RemoteViewerProps) {
         }
       };
 
-      tunnel.onWebSocketOpen = () => {
-        wsOpen = true;
-        setStatus("WebSocket OK — handshake guacd…");
-      };
-
-      tunnel.onWebSocketClose = (code) => {
-        if (guacdReady) return;
-        const messages: Record<number, string> = {
-          4001: "Session expirée — déconnectez-vous puis reconnectez-vous",
-          4002: "Paramètre hostId manquant",
-          4003: "Hôte RDP/VNC introuvable",
-          1006: "WebSocket impossible — reconnectez-vous ou vérifiez le réseau",
-        };
-        setError(messages[code] ?? `WebSocket fermée (code ${code})`);
-      };
-
       tunnel.onstatechange = (state: number) => {
-        if (state === Guacamole.Tunnel.State.OPEN) {
+        if (state === Guacamole.Tunnel.State.CONNECTING) {
+          setStatus("Connexion WebSocket…");
+        } else if (state === Guacamole.Tunnel.State.OPEN) {
           guacdReady = true;
           setStatus("Ouverture du bureau distant…");
         }
@@ -251,24 +97,23 @@ export default function RemoteViewer({ hostId }: RemoteViewerProps) {
         setError(err.message || "Erreur de connexion distante");
       };
 
-      setStatus("Connexion WebSocket…");
-      client.connect("");
+      client.connect(connectData);
 
-      const wsTimeout = window.setTimeout(() => {
-        if (!wsOpen) {
+      const handshakeTimeout = window.setTimeout(() => {
+        if (!guacdReady) {
           setError(
-            "WebSocket bloquée — testez http://IP:3000 en direct ou activez Websockets dans NPM"
+            "Handshake guacd expiré — vérifiez docker logs bastion et identifiants RDP"
           );
         }
-      }, 8000);
+      }, 15000);
 
       const timeout = window.setTimeout(() => {
         if (client.getDisplay().getWidth() === 0) {
           setError(
-            "Délai dépassé — WebSocket ou identifiants RDP à vérifier"
+            "Délai dépassé — identifiants RDP ou pare-feu Windows à vérifier"
           );
         }
-      }, 30000);
+      }, 45000);
 
       const resizeObserver = new ResizeObserver(() => {
         scale();
@@ -280,7 +125,7 @@ export default function RemoteViewer({ hostId }: RemoteViewerProps) {
       resizeObserver.observe(containerRef.current);
 
       cleanup = () => {
-        window.clearTimeout(wsTimeout);
+        window.clearTimeout(handshakeTimeout);
         window.clearTimeout(timeout);
         resizeObserver.disconnect();
         keyboard.onkeydown = keyboard.onkeyup = null;

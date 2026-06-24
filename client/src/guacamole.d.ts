@@ -66,6 +66,10 @@ declare module "guacamole-common-js" {
     sendMessage(...elements: string[]): void;
   }
 
+  export class WebSocketTunnel extends Tunnel {
+    constructor(tunnelURL: string);
+  }
+
   export class Client {
     static State: {
       IDLE: number;
