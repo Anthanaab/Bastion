@@ -93,18 +93,19 @@ export function handleGuacdConnection(
     return;
   }
 
-  const sessionId = createSession(hostId, host.protocol);
+  const protocol = host.protocol;
+
+  const sessionId = createSession(hostId, protocol);
 
   console.log(
-    `[Guacd] Session ${host.protocol} → ${host.hostname}:${host.port} (${host.name})`
+    `[Guacd] Session ${protocol} → ${host.hostname}:${host.port} (${host.name})`
   );
 
   let guacdClient: GuacdClient | null = null;
   let opened = false;
   let attemptIndex = 0;
   let retrying = false;
-  const securityModes =
-    host.protocol === "rdp" ? rdpSecurityModes() : [""];
+  const securityModes = protocol === "rdp" ? rdpSecurityModes() : [""];
 
   const handshakeTimeout = setTimeout(() => {
     if (!opened && !retrying) {
@@ -122,16 +123,16 @@ export function handleGuacdConnection(
   const startClient = (securityMode?: string) => {
     guacdClient?.close();
 
-    const settings = buildSettings(host.protocol, host, securityMode);
+    const settings = buildSettings(protocol, host, securityMode);
 
-    if (host.protocol === "rdp" && securityMode) {
+    if (protocol === "rdp" && securityMode) {
       console.log(`[Guacd] RDP security=${securityMode}`);
     }
 
     try {
       guacdClient = new GuacdClient(
         { host: guacdHost, port: guacdPort },
-        host.protocol,
+        protocol,
         settings
       );
     } catch (err) {
@@ -149,7 +150,7 @@ export function handleGuacdConnection(
 
     guacdClient.on("data", (data: string) => {
       if (
-        host.protocol === "rdp" &&
+        protocol === "rdp" &&
         isRdpSecurityError(data) &&
         attemptIndex < securityModes.length - 1
       ) {
@@ -182,7 +183,7 @@ export function handleGuacdConnection(
     });
   };
 
-  startClient(host.protocol === "rdp" ? securityModes[0] : undefined);
+  startClient(protocol === "rdp" ? securityModes[0] : undefined);
 
   ws.on("message", (data) => {
     const message =
