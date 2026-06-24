@@ -15,7 +15,7 @@ services:
       GUACD_HOST: guacd
       GUACD_PORT: "4822"
       DATABASE_PATH: /app/data/bastion.json
-      BASTION_RDP_SECURITY: ${BASTION_RDP_SECURITY:-nla}
+      BASTION_RDP_SECURITY: ${BASTION_RDP_SECURITY:-rdp,tls,any}
     depends_on:
       guacd:
         condition: service_started

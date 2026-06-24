@@ -5,9 +5,24 @@ import { wsAuthFromRequest } from "../auth";
 import { GuacdClient, type ConnectionSettings } from "./guacd-client";
 import { toInstruction } from "./guacamole-parser";
 
+const DEFAULT_RDP_SECURITY = "rdp,tls,any";
+
+function rdpSecurityModes(): string[] {
+  const raw = process.env.BASTION_RDP_SECURITY ?? DEFAULT_RDP_SECURITY;
+  return raw
+    .split(",")
+    .map((mode) => mode.trim())
+    .filter(Boolean);
+}
+
+function isRdpSecurityError(data: string): boolean {
+  return /wrong security type|security negotiation failed/i.test(data);
+}
+
 function buildSettings(
   protocol: "rdp" | "vnc",
-  host: NonNullable<ReturnType<typeof getHost>>
+  host: NonNullable<ReturnType<typeof getHost>>,
+  securityMode?: string
 ): ConnectionSettings {
   let username = host.username ?? "";
   let domain = "";
@@ -35,8 +50,7 @@ function buildSettings(
   if (domain) settings.domain = domain;
 
   if (protocol === "rdp") {
-    const security = process.env.BASTION_RDP_SECURITY ?? "nla";
-    settings.security = security;
+    settings.security = securityMode ?? rdpSecurityModes()[0] ?? "rdp";
     settings["ignore-cert"] = "true";
     settings["cert-tofu"] = "true";
     settings["enable-wallpaper"] = "false";
@@ -80,7 +94,6 @@ export function handleGuacdConnection(
   }
 
   const sessionId = createSession(hostId, host.protocol);
-  const settings = buildSettings(host.protocol, host);
 
   console.log(
     `[Guacd] Session ${host.protocol} → ${host.hostname}:${host.port} (${host.name})`
@@ -88,52 +101,88 @@ export function handleGuacdConnection(
 
   let guacdClient: GuacdClient | null = null;
   let opened = false;
+  let attemptIndex = 0;
+  let retrying = false;
+  const securityModes =
+    host.protocol === "rdp" ? rdpSecurityModes() : [""];
 
   const handshakeTimeout = setTimeout(() => {
-    if (!opened) {
+    if (!opened && !retrying) {
       console.error("[Guacd] Timeout handshake");
       ws.send(toInstruction(["error", "Timeout connexion guacd", "504"]));
       ws.close(4006, "Timeout handshake");
       guacdClient?.close(new Error("Timeout handshake"));
     }
-  }, 20000);
+  }, 30000);
 
   const sendToClient = (data: string) => {
     if (ws.readyState === WebSocket.OPEN) ws.send(data);
   };
 
-  try {
-    guacdClient = new GuacdClient(
-      { host: guacdHost, port: guacdPort },
-      host.protocol,
-      settings
-    );
-  } catch (err) {
-    clearTimeout(handshakeTimeout);
-    console.error("[Guacd] Init error:", err);
-    ws.close(4005, "guacd indisponible");
-    return;
-  }
+  const startClient = (securityMode?: string) => {
+    guacdClient?.close();
 
-  guacdClient.on("open", () => {
-    opened = true;
-    clearTimeout(handshakeTimeout);
-    console.log(`[Guacd] Prêt — ${host.name}`);
-  });
+    const settings = buildSettings(host.protocol, host, securityMode);
 
-  guacdClient.on("data", (data: string) => {
-    sendToClient(data);
-  });
+    if (host.protocol === "rdp" && securityMode) {
+      console.log(`[Guacd] RDP security=${securityMode}`);
+    }
 
-  guacdClient.on("error", (err: Error) => {
-    console.error("[Guacd] Erreur:", err.message);
-    sendToClient(toInstruction(["error", err.message, "769"]));
-  });
+    try {
+      guacdClient = new GuacdClient(
+        { host: guacdHost, port: guacdPort },
+        host.protocol,
+        settings
+      );
+    } catch (err) {
+      console.error("[Guacd] Init error:", err);
+      sendToClient(toInstruction(["error", "guacd indisponible", "769"]));
+      return;
+    }
 
-  guacdClient.on("close", () => {
-    clearTimeout(handshakeTimeout);
-    if (ws.readyState === WebSocket.OPEN) ws.close();
-  });
+    guacdClient.on("open", () => {
+      opened = true;
+      retrying = false;
+      clearTimeout(handshakeTimeout);
+      console.log(`[Guacd] Prêt — ${host.name}`);
+    });
+
+    guacdClient.on("data", (data: string) => {
+      if (
+        host.protocol === "rdp" &&
+        isRdpSecurityError(data) &&
+        attemptIndex < securityModes.length - 1
+      ) {
+        attemptIndex += 1;
+        retrying = true;
+        opened = false;
+        const nextMode = securityModes[attemptIndex];
+        console.warn(
+          `[Guacd] Échec sécurité RDP, nouvel essai avec security=${nextMode}`
+        );
+        startClient(nextMode);
+        return;
+      }
+
+      sendToClient(data);
+    });
+
+    guacdClient.on("error", (err: Error) => {
+      console.error("[Guacd] Erreur:", err.message);
+      if (!retrying) {
+        sendToClient(toInstruction(["error", err.message, "769"]));
+      }
+    });
+
+    guacdClient.on("close", () => {
+      if (!retrying && ws.readyState === WebSocket.OPEN) {
+        clearTimeout(handshakeTimeout);
+        ws.close();
+      }
+    });
+  };
+
+  startClient(host.protocol === "rdp" ? securityModes[0] : undefined);
 
   ws.on("message", (data) => {
     const message =
