@@ -5,12 +5,12 @@ import { wsAuthFromRequest } from "../auth";
 import { GuacdClient, type ConnectionSettings } from "./guacd-client";
 import { toInstruction } from "./guacamole-parser";
 
-const DEFAULT_RDP_SECURITY = "rdp,tls,any";
+const DEFAULT_RDP_SECURITY = "tls|rdp|any";
 
 function rdpSecurityModes(): string[] {
   const raw = process.env.BASTION_RDP_SECURITY ?? DEFAULT_RDP_SECURITY;
   return raw
-    .split(",")
+    .split(/[|,]/)
     .map((mode) => mode.trim())
     .filter(Boolean);
 }
@@ -50,12 +50,12 @@ function buildSettings(
   if (domain) settings.domain = domain;
 
   if (protocol === "rdp") {
-    settings.security = securityMode ?? rdpSecurityModes()[0] ?? "rdp";
+    settings.security = securityMode ?? rdpSecurityModes()[0] ?? "tls";
     settings["ignore-cert"] = "true";
-    settings["cert-tofu"] = "true";
     settings["enable-wallpaper"] = "false";
     settings["enable-font-smoothing"] = "true";
     settings["resize-method"] = "display-update";
+    settings["server-layout"] = "fr-fr-azerty";
   } else {
     settings["color-depth"] = "24";
     settings.cursor = "remote";
@@ -106,6 +106,9 @@ export function handleGuacdConnection(
   let attemptIndex = 0;
   let retrying = false;
   const securityModes = protocol === "rdp" ? rdpSecurityModes() : [""];
+  if (protocol === "rdp") {
+    console.log(`[Guacd] Modes RDP à essayer: ${securityModes.join(" → ")}`);
+  }
 
   const handshakeTimeout = setTimeout(() => {
     if (!opened && !retrying) {
@@ -121,7 +124,11 @@ export function handleGuacdConnection(
   };
 
   const startClient = (securityMode?: string) => {
-    guacdClient?.close();
+    if (guacdClient) {
+      guacdClient.removeAllListeners();
+      guacdClient.close();
+      guacdClient = null;
+    }
 
     const settings = buildSettings(protocol, host, securityMode);
 
@@ -154,6 +161,7 @@ export function handleGuacdConnection(
         isRdpSecurityError(data) &&
         attemptIndex < securityModes.length - 1
       ) {
+        console.warn(`[Guacd] Erreur sécurité RDP: ${data.slice(0, 120)}`);
         attemptIndex += 1;
         retrying = true;
         opened = false;

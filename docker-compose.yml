@@ -15,7 +15,7 @@ services:
       GUACD_HOST: guacd
       GUACD_PORT: "4822"
       DATABASE_PATH: /app/data/bastion.json
-      BASTION_RDP_SECURITY: ${BASTION_RDP_SECURITY:-rdp,tls,any}
+      BASTION_RDP_SECURITY: "${BASTION_RDP_SECURITY:-tls|rdp|any}"
     depends_on:
       guacd:
         condition: service_started
@@ -27,9 +27,13 @@ services:
     container_name: bastion-guacd
     restart: unless-stopped
     environment:
-      HOME: /var/lib/guacd
+      HOME: /home/guacd
+      GUACD_LOG_LEVEL: debug
     volumes:
-      - guacd-home:/var/lib/guacd
+      - guacd-home:/home/guacd
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - "mkdir -p /home/guacd/.config/freerdp && exec /opt/guacamole/sbin/guacd -f -b 0.0.0.0 -L debug"
     networks:
       - bastion-net
 
