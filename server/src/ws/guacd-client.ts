@@ -159,15 +159,21 @@ export class GuacdClient extends EventEmitter {
   }
 
   private sendHandshakeReply(serverArgs: string[]): void {
-    let protocolVersion = "1_0_0";
+    let negotiatedVersion = "1_0_0";
+    for (const argName of serverArgs) {
+      if (!argName.startsWith("VERSION_")) continue;
+      const version = argName.substring(8);
+      if (version === "1_5_0") negotiatedVersion = "1_5_0";
+      else if (version === "1_1_0" && negotiatedVersion === "1_0_0") {
+        negotiatedVersion = "1_1_0";
+      }
+    }
+
     const connectArgs: string[] = [];
 
     for (const argName of serverArgs) {
       if (argName.startsWith("VERSION_")) {
-        const version = argName.substring(8);
-        protocolVersion =
-          version === "1_0_0" || version === "1_1_0" ? version : "1_1_0";
-        connectArgs.push(`VERSION_${protocolVersion}`);
+        connectArgs.push(`VERSION_${negotiatedVersion}`);
       } else {
         connectArgs.push(this.resolveSetting(argName));
       }
@@ -191,10 +197,12 @@ export class GuacdClient extends EventEmitter {
       Array.isArray(image) ? ["image", ...image] : ["image"]
     );
 
-    if (protocolVersion === "1_1_0") {
+    if (negotiatedVersion === "1_1_0" || negotiatedVersion === "1_5_0") {
       const tz = this.connectionSettings.timezone;
       this.sendInstruction(tz ? ["timezone", tz] : ["timezone"]);
     }
+
+    console.log(`[Guacd] Protocol VERSION_${negotiatedVersion}`);
 
     this.sendInstruction(["connect", ...connectArgs]);
   }

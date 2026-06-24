@@ -52,10 +52,11 @@ function buildSettings(
   if (protocol === "rdp") {
     settings.security = securityMode ?? rdpSecurityModes()[0] ?? "nla";
     settings["ignore-cert"] = "true";
-    settings["disable-gfx"] = "true";
-    settings["color-depth"] = "24";
+    settings["color-depth"] = "32";
     settings["enable-wallpaper"] = "false";
     settings["enable-font-smoothing"] = "true";
+    settings["enable-desktop-composition"] = "false";
+    settings["force-lossless"] = "true";
     settings["resize-method"] = "display-update";
   } else {
     settings["color-depth"] = "24";

@@ -50,8 +50,20 @@ export default function RemoteViewer({ hostId }: RemoteViewerProps) {
       containerRef.current.innerHTML = "";
       containerRef.current.appendChild(element);
       element.style.display = "block";
-      element.style.maxWidth = "100%";
-      element.style.maxHeight = "100%";
+      element.style.width = "100%";
+      element.style.height = "100%";
+
+      const sendDisplaySize = () => {
+        const container = containerRef.current;
+        if (!container) return;
+        const w = Math.max(container.clientWidth, 800);
+        const h = Math.max(container.clientHeight, 600);
+        client.sendSize(w, h);
+      };
+
+      client.onsync = () => {
+        scale();
+      };
 
       const mouse = new Guacamole.Mouse(element);
       mouse.onmousedown =
@@ -83,6 +95,7 @@ export default function RemoteViewer({ hostId }: RemoteViewerProps) {
         } else if (state === Guacamole.Tunnel.State.OPEN) {
           guacdReady = true;
           setStatus("Ouverture du bureau distant…");
+          sendDisplaySize();
         }
       };
 
@@ -90,10 +103,7 @@ export default function RemoteViewer({ hostId }: RemoteViewerProps) {
         if (state === Guacamole.Client.State.CONNECTED) {
           setStatus("Connecté");
           setError("");
-          const container = containerRef.current;
-          if (container) {
-            client.sendSize(container.clientWidth, container.clientHeight);
-          }
+          sendDisplaySize();
           scale();
         } else if (state === Guacamole.Client.State.DISCONNECTED && guacdReady) {
           setStatus("Déconnecté");
@@ -124,9 +134,8 @@ export default function RemoteViewer({ hostId }: RemoteViewerProps) {
 
       const resizeObserver = new ResizeObserver(() => {
         scale();
-        const container = containerRef.current;
-        if (container && display.getWidth()) {
-          client.sendSize(container.clientWidth, container.clientHeight);
+        if (display.getWidth()) {
+          sendDisplaySize();
         }
       });
       resizeObserver.observe(containerRef.current);

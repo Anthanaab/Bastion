@@ -85,6 +85,7 @@ declare module "guacamole-common-js" {
     disconnect(): void;
     onstatechange: ((state: number) => void) | null;
     onerror: ((status: Status) => void) | null;
+    onsync: ((timestamp: number, frames: number) => void) | null;
     sendMouseState(state: Mouse.State, applyDisplayScale?: boolean): void;
     sendKeyEvent(pressed: number, keysym: number): void;
     sendSize(width: number, height: number): void;
