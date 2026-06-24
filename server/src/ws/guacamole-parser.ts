@@ -42,6 +42,15 @@ export class GuacamoleParser {
           continue;
         }
 
+        if (
+          this.elementCodepoints &&
+          this.buffer.codePointAt(this.elementEnd - 1) !== undefined &&
+          (this.buffer.codePointAt(this.elementEnd - 1) ?? 0) >= 0x10000
+        ) {
+          this.elementEnd++;
+          continue;
+        }
+
         const element = this.buffer.substring(this.startIndex, this.elementEnd);
         const terminator = this.buffer.substring(this.elementEnd, this.elementEnd + 1);
         this.elementBuffer.push(element);
@@ -50,9 +59,13 @@ export class GuacamoleParser {
           const opcode = this.elementBuffer.shift() ?? "";
           this.oninstruction?.(opcode, [...this.elementBuffer]);
           this.elementBuffer = [];
-          if (this.elementEnd + 1 === this.buffer.length) {
+
+          if (this.elementEnd + 1 >= this.buffer.length) {
             this.elementEnd = -1;
             this.buffer = "";
+            this.startIndex = 0;
+            this.elementCodepoints = 0;
+            break;
           }
         } else if (terminator !== ",") {
           throw new Error("Invalid Guacamole instruction terminator");

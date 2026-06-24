@@ -2,10 +2,51 @@ import { useEffect, useRef, useState } from "react";
 import Guacamole from "guacamole-common-js";
 import { wsUrl } from "../lib/api";
 
-/** WebSocket tunnel compatible with guacamole-common-js (comme guacamole-lite). */
+function getElement(value: string): string {
+  return `${value.length}.${value}`;
+}
+
+function parseInstructionMessage(
+  message: string,
+  onInstruction: (opcode: string, elements: string[]) => void
+): void {
+  let startIndex = 0;
+  let elementEnd: number | undefined;
+  const elements: string[] = [];
+
+  do {
+    const lengthEnd = message.indexOf(".", startIndex);
+    if (lengthEnd === -1) return;
+
+    const length = parseInt(
+      message.substring((elementEnd ?? -1) + 1, lengthEnd),
+      10
+    );
+    startIndex = lengthEnd + 1;
+    elementEnd = startIndex + length;
+
+    if (elementEnd > message.length) return;
+
+    const element = message.substring(startIndex, elementEnd);
+    const terminator = message.substring(elementEnd, elementEnd + 1);
+    elements.push(element);
+
+    if (terminator === ";") {
+      const opcode = elements.shift() ?? "";
+      onInstruction(opcode, [...elements]);
+      elements.length = 0;
+    } else if (terminator !== ",") {
+      return;
+    }
+
+    startIndex = elementEnd + 1;
+  } while (startIndex < message.length);
+}
+
+/** Tunnel WebSocket compatible guacamole-common-js (modèle guacamole-lite). */
 class BastionTunnel extends Guacamole.Tunnel {
   private socket: WebSocket | null = null;
-  private receiveTimeout: ReturnType<typeof setTimeout> | null = null;
+  private activityTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(private readonly url: string) {
     super();
@@ -15,60 +56,35 @@ class BastionTunnel extends Guacamole.Tunnel {
     this.setState(Guacamole.Tunnel.State.CONNECTING);
     this.socket = new WebSocket(this.url);
 
-    this.socket.onopen = () => {
-      /* OPEN est défini à la réception du premier message (ready). */
-    };
-
     this.socket.onmessage = (event) => {
-      if (this.receiveTimeout) {
-        clearTimeout(this.receiveTimeout);
-        this.receiveTimeout = null;
+      if (this.activityTimer) {
+        clearTimeout(this.activityTimer);
+        this.activityTimer = null;
       }
 
-      const message = event.data as string;
-      let startIndex = 0;
-      let elementEnd = -1;
-      const elements: string[] = [];
+      const message =
+        typeof event.data === "string"
+          ? event.data
+          : new TextDecoder().decode(event.data as ArrayBuffer);
 
-      do {
-        const lengthEnd = message.indexOf(".", startIndex);
-        if (lengthEnd === -1) break;
-
-        const length = parseInt(message.substring(elementEnd + 1, lengthEnd), 10);
-        startIndex = lengthEnd + 1;
-        elementEnd = startIndex + length;
-
-        if (elementEnd > message.length) break;
-
-        const element = message.substring(startIndex, elementEnd);
-        const terminator = message.substring(elementEnd, elementEnd + 1);
-        elements.push(element);
-
-        if (terminator === ";") {
-          const opcode = elements.shift() ?? "";
-
-          if (this.uuid === null) {
-            if (
-              opcode === Guacamole.Tunnel.INTERNAL_DATA_OPCODE &&
-              elements.length === 1
-            ) {
-              this.setUUID(elements[0]);
-            }
-            this.setState(Guacamole.Tunnel.State.OPEN);
-          }
-
+      parseInstructionMessage(message, (opcode, elements) => {
+        if (this.uuid === null) {
           if (
-            opcode !== Guacamole.Tunnel.INTERNAL_DATA_OPCODE &&
-            this.oninstruction
+            opcode === Guacamole.Tunnel.INTERNAL_DATA_OPCODE &&
+            elements.length === 1
           ) {
-            this.oninstruction(opcode, elements);
+            this.setUUID(elements[0]);
           }
-
-          elements.length = 0;
+          this.setState(Guacamole.Tunnel.State.OPEN);
         }
 
-        startIndex = elementEnd + 1;
-      } while (startIndex < message.length);
+        if (
+          opcode !== Guacamole.Tunnel.INTERNAL_DATA_OPCODE &&
+          this.oninstruction
+        ) {
+          this.oninstruction(opcode, elements);
+        }
+      });
     };
 
     this.socket.onclose = () => {
@@ -76,11 +92,12 @@ class BastionTunnel extends Guacamole.Tunnel {
     };
 
     this.socket.onerror = () => {
-      if (this.onerror) {
-        this.onerror(
-          new Guacamole.Status(Guacamole.Status.Code.SERVER_ERROR, "WebSocket error")
-        );
-      }
+      this.onerror?.(
+        new Guacamole.Status(
+          Guacamole.Status.Code.SERVER_ERROR,
+          "Erreur WebSocket"
+        )
+      );
       this.setState(Guacamole.Tunnel.State.CLOSED);
     };
   }
@@ -89,27 +106,23 @@ class BastionTunnel extends Guacamole.Tunnel {
     if (!this.isConnected() || elements.length === 0) return;
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN) return;
 
-    const instruction = elements
-      .map((el) => {
-        const str = String(el);
-        return `${str.length}.${str}`;
-      })
-      .join(",")
-      .concat(";");
+    let instruction = getElement(elements[0]);
+    for (let i = 1; i < elements.length; i++) {
+      instruction += "," + getElement(elements[i]);
+    }
+    instruction += ";";
 
     this.socket.send(instruction);
 
-    this.receiveTimeout = setTimeout(() => {
-      if (this.onerror) {
-        this.onerror(
-          new Guacamole.Status(Guacamole.Status.Code.UPSTREAM_TIMEOUT)
-        );
-      }
-    }, 15000);
+    this.activityTimer = setTimeout(() => {
+      this.onerror?.(
+        new Guacamole.Status(Guacamole.Status.Code.UPSTREAM_TIMEOUT)
+      );
+    }, this.receiveTimeout || 15000);
   }
 
   disconnect(): void {
-    if (this.receiveTimeout) clearTimeout(this.receiveTimeout);
+    if (this.activityTimer) clearTimeout(this.activityTimer);
     this.socket?.close();
     this.socket = null;
     this.setState(Guacamole.Tunnel.State.CLOSED);
@@ -123,7 +136,7 @@ interface RemoteViewerProps {
 
 export default function RemoteViewer({ hostId }: RemoteViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [status, setStatus] = useState("Connexion en cours…");
+  const [status, setStatus] = useState("Connexion au serveur…");
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -146,12 +159,8 @@ export default function RemoteViewer({ hostId }: RemoteViewerProps) {
         };
 
     const keyboard = new Guacamole.Keyboard(document);
-    keyboard.onkeydown = (keysym: number) => {
-      client.sendKeyEvent(1, keysym);
-    };
-    keyboard.onkeyup = (keysym: number) => {
-      client.sendKeyEvent(0, keysym);
-    };
+    keyboard.onkeydown = (keysym: number) => client.sendKeyEvent(1, keysym);
+    keyboard.onkeyup = (keysym: number) => client.sendKeyEvent(0, keysym);
 
     const scale = () => {
       const container = containerRef.current;
@@ -165,12 +174,21 @@ export default function RemoteViewer({ hostId }: RemoteViewerProps) {
       }
     };
 
+    tunnel.onstatechange = (state: number) => {
+      if (state === Guacamole.Tunnel.State.CONNECTING) {
+        setStatus("Connexion au serveur…");
+      } else if (state === Guacamole.Tunnel.State.OPEN) {
+        setStatus("Ouverture du bureau distant…");
+      }
+    };
+
     client.onstatechange = (state: number) => {
       if (state === Guacamole.Client.State.CONNECTED) {
         setStatus("Connecté");
+        setError("");
         scale();
-      } else if (state === Guacamole.Client.State.CONNECTING) {
-        setStatus("Connexion en cours…");
+      } else if (state === Guacamole.Client.State.WAITING) {
+        setStatus("Ouverture du bureau distant…");
       } else if (state === Guacamole.Client.State.DISCONNECTED) {
         setStatus("Déconnecté");
       }
@@ -182,18 +200,25 @@ export default function RemoteViewer({ hostId }: RemoteViewerProps) {
 
     client.connect("");
 
+    const timeout = window.setTimeout(() => {
+      if (client.getDisplay().getWidth() === 0) {
+        setError(
+          "Délai dépassé — vérifiez IP/port, identifiants, et que guacd tourne"
+        );
+      }
+    }, 30000);
+
     const resizeObserver = new ResizeObserver(() => {
       scale();
-      if (display.getWidth() && display.getHeight()) {
-        client.sendSize(
-          containerRef.current?.clientWidth ?? 1920,
-          containerRef.current?.clientHeight ?? 1080
-        );
+      const container = containerRef.current;
+      if (container && display.getWidth()) {
+        client.sendSize(container.clientWidth, container.clientHeight);
       }
     });
     resizeObserver.observe(containerRef.current);
 
     return () => {
+      window.clearTimeout(timeout);
       resizeObserver.disconnect();
       keyboard.onkeydown = keyboard.onkeyup = null;
       client.disconnect();
@@ -206,7 +231,13 @@ export default function RemoteViewer({ hostId }: RemoteViewerProps) {
         ref={containerRef}
         className="absolute inset-0 flex items-center justify-center"
       />
-      <div className="pointer-events-none absolute left-3 top-3 rounded-md bg-bastion-900/80 px-2 py-1 text-xs text-slate-400 backdrop-blur">
+      <div
+        className={`pointer-events-none absolute left-3 top-3 max-w-md rounded-md px-2 py-1 text-xs backdrop-blur ${
+          error
+            ? "bg-red-950/90 text-red-300"
+            : "bg-bastion-900/80 text-slate-400"
+        }`}
+      >
         {error || status}
       </div>
     </div>
