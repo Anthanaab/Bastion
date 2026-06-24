@@ -56,7 +56,8 @@ function buildSettings(
     settings["enable-font-smoothing"] = "true";
     settings["resize-method"] = "display-update";
     settings["server-layout"] = "fr-fr-azerty";
-    settings["color-depth"] = "32";
+    settings["color-depth"] = "16";
+    settings["disable-gfx"] = "true";
   } else {
     settings["color-depth"] = "24";
     settings.cursor = "remote";

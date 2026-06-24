@@ -49,6 +49,9 @@ export default function RemoteViewer({ hostId }: RemoteViewerProps) {
 
       containerRef.current.innerHTML = "";
       containerRef.current.appendChild(element);
+      element.style.display = "block";
+      element.style.maxWidth = "100%";
+      element.style.maxHeight = "100%";
 
       const mouse = new Guacamole.Mouse(element);
       mouse.onmousedown =

@@ -28,7 +28,7 @@ services:
     restart: unless-stopped
     environment:
       HOME: /home/guacd
-      GUACD_LOG_LEVEL: info
+      LOG_LEVEL: info
     volumes:
       - guacd-home:/home/guacd
     networks:
