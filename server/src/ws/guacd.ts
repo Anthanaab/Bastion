@@ -5,7 +5,7 @@ import { wsAuthFromRequest } from "../auth";
 import { GuacdClient, type ConnectionSettings } from "./guacd-client";
 import { toInstruction } from "./guacamole-parser";
 
-const DEFAULT_RDP_SECURITY = "tls|rdp|any";
+const DEFAULT_RDP_SECURITY = "nla|tls|rdp|any";
 
 function rdpSecurityModes(): string[] {
   const raw = process.env.BASTION_RDP_SECURITY ?? DEFAULT_RDP_SECURITY;
@@ -50,7 +50,7 @@ function buildSettings(
   if (domain) settings.domain = domain;
 
   if (protocol === "rdp") {
-    settings.security = securityMode ?? rdpSecurityModes()[0] ?? "tls";
+    settings.security = securityMode ?? rdpSecurityModes()[0] ?? "nla";
     settings["ignore-cert"] = "true";
     settings["enable-wallpaper"] = "false";
     settings["enable-font-smoothing"] = "true";
