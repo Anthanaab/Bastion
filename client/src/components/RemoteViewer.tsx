@@ -7,6 +7,12 @@ interface RemoteViewerProps {
   protocol: "rdp" | "vnc";
 }
 
+function viewportSize(container: HTMLElement): { width: number; height: number } {
+  const width = Math.min(3840, Math.max(800, container.clientWidth || 1920));
+  const height = Math.min(2160, Math.max(600, container.clientHeight || 1080));
+  return { width, height };
+}
+
 export default function RemoteViewer({ hostId }: RemoteViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState("Connexion au serveur…");
@@ -35,20 +41,22 @@ export default function RemoteViewer({ hostId }: RemoteViewerProps) {
 
       if (cancelled || !containerRef.current) return;
 
+      const { width, height } = viewportSize(containerRef.current);
       const tunnel = new Guacamole.WebSocketTunnel(wsBaseUrl("/ws/guacd"));
       tunnel.receiveTimeout = 90000;
       tunnel.unstableThreshold = 10000;
 
-      const connectData = wsConnectData({ hostId });
+      const connectData = wsConnectData({
+        hostId,
+        width: String(width),
+        height: String(height),
+      });
       console.info(
         "[Bastion] WebSocket:",
         `${wsBaseUrl("/ws/guacd")}?${connectData}`
       );
 
       let guacdReady = false;
-      let lastW = 0;
-      let lastH = 0;
-      let sizeTimer: ReturnType<typeof setTimeout> | undefined;
 
       const client = new Guacamole.Client(tunnel);
       const display = client.getDisplay();
@@ -59,22 +67,6 @@ export default function RemoteViewer({ hostId }: RemoteViewerProps) {
       element.style.display = "block";
       element.style.width = "100%";
       element.style.height = "100%";
-
-      const sendDisplaySize = () => {
-        const container = containerRef.current;
-        if (!container) return;
-        const w = container.clientWidth;
-        const h = container.clientHeight;
-        if (w < 100 || h < 100) return;
-        if (Math.abs(w - lastW) < 24 && Math.abs(h - lastH) < 24) return;
-
-        if (sizeTimer) clearTimeout(sizeTimer);
-        sizeTimer = setTimeout(() => {
-          lastW = w;
-          lastH = h;
-          client.sendSize(w, h);
-        }, 400);
-      };
 
       const scale = () => {
         const container = containerRef.current;
@@ -117,7 +109,6 @@ export default function RemoteViewer({ hostId }: RemoteViewerProps) {
         if (state === Guacamole.Client.State.CONNECTED) {
           setStatus("Connecté");
           setError("");
-          sendDisplaySize();
           scale();
         } else if (state === Guacamole.Client.State.DISCONNECTED && guacdReady) {
           setStatus("Déconnecté");
@@ -144,18 +135,14 @@ export default function RemoteViewer({ hostId }: RemoteViewerProps) {
             "Délai dépassé — identifiants RDP ou pare-feu Windows à vérifier"
           );
         }
-      }, 60000);
+      }, 90000);
 
       const resizeObserver = new ResizeObserver(() => {
         scale();
-        if (display.getWidth()) {
-          sendDisplaySize();
-        }
       });
       resizeObserver.observe(containerRef.current);
 
       cleanup = () => {
-        if (sizeTimer) clearTimeout(sizeTimer);
         window.clearTimeout(handshakeTimeout);
         window.clearTimeout(timeout);
         resizeObserver.disconnect();

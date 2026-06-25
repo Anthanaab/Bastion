@@ -7,6 +7,22 @@ import { toInstruction, splitClientMessage } from "./guacamole-parser";
 
 const DEFAULT_RDP_SECURITY = "nla|tls|rdp|any";
 
+function rdpDisableGfx(): boolean {
+  const raw = process.env.BASTION_RDP_DISABLE_GFX ?? "true";
+  return raw !== "false" && raw !== "0";
+}
+
+function parseViewportSize(
+  raw: string | null,
+  fallback: number,
+  min: number,
+  max: number
+): number {
+  const n = parseInt(raw ?? "", 10);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, n));
+}
+
 function rdpSecurityModes(): string[] {
   const raw = process.env.BASTION_RDP_SECURITY ?? DEFAULT_RDP_SECURITY;
   return raw
@@ -22,7 +38,8 @@ function isRdpSecurityError(data: string): boolean {
 function buildSettings(
   protocol: "rdp" | "vnc",
   host: NonNullable<ReturnType<typeof getHost>>,
-  securityMode?: string
+  securityMode?: string,
+  viewport?: { width: number; height: number }
 ): ConnectionSettings {
   let username = host.username ?? "";
   let domain = "";
@@ -38,8 +55,8 @@ function buildSettings(
     port: String(host.port),
     username,
     password: host.password ?? "",
-    width: "1920",
-    height: "1080",
+    width: String(viewport?.width ?? 1920),
+    height: String(viewport?.height ?? 1080),
     dpi: "96",
     audio: ["audio/L16"],
     video: null,
@@ -52,11 +69,13 @@ function buildSettings(
   if (protocol === "rdp") {
     settings.security = securityMode ?? rdpSecurityModes()[0] ?? "nla";
     settings["ignore-cert"] = "true";
-    settings["color-depth"] = "32";
+    settings["color-depth"] = "24";
     settings["enable-wallpaper"] = "false";
     settings["enable-font-smoothing"] = "true";
     settings["enable-desktop-composition"] = "false";
-    settings["resize-method"] = "display-update";
+    if (rdpDisableGfx()) {
+      settings["disable-gfx"] = "true";
+    }
   } else {
     settings["color-depth"] = "24";
     settings.cursor = "remote";
@@ -88,6 +107,11 @@ export function handleGuacdConnection(
     return;
   }
 
+  const viewport = {
+    width: parseViewportSize(params.get("width"), 1920, 800, 3840),
+    height: parseViewportSize(params.get("height"), 1080, 600, 2160),
+  };
+
   const host = getHost(hostId);
   if (!host || (host.protocol !== "rdp" && host.protocol !== "vnc")) {
     ws.close(4003, "Hôte ou protocole invalide");
@@ -99,7 +123,7 @@ export function handleGuacdConnection(
   const sessionId = createSession(hostId, protocol);
 
   console.log(
-    `[Guacd] Session ${protocol} → ${host.hostname}:${host.port} (${host.name})`
+    `[Guacd] Session ${protocol} → ${host.hostname}:${host.port} (${host.name}) ${viewport.width}x${viewport.height}`
   );
 
   let guacdClient: GuacdClient | null = null;
@@ -131,7 +155,7 @@ export function handleGuacdConnection(
       guacdClient = null;
     }
 
-    const settings = buildSettings(protocol, host, securityMode);
+    const settings = buildSettings(protocol, host, securityMode, viewport);
 
     if (protocol === "rdp" && securityMode) {
       console.log(`[Guacd] RDP security=${securityMode}`);
@@ -157,6 +181,10 @@ export function handleGuacdConnection(
     });
 
     guacdClient.on("data", (data: string) => {
+      if (/authentication failure|invalid credentials/i.test(data)) {
+        console.error("[Guacd] Échec authentification RDP — vérifiez identifiants hôte");
+      }
+
       if (
         protocol === "rdp" &&
         isRdpSecurityError(data) &&

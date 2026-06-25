@@ -159,12 +159,13 @@ export class GuacdClient extends EventEmitter {
   }
 
   private sendHandshakeReply(serverArgs: string[]): void {
+    const gfxDisabled = this.resolveSetting("disable-gfx") === "true";
     let negotiatedVersion = "1_0_0";
     for (const argName of serverArgs) {
       if (!argName.startsWith("VERSION_")) continue;
       const version = argName.substring(8);
-      if (version === "1_5_0") negotiatedVersion = "1_5_0";
-      else if (version === "1_1_0" && negotiatedVersion === "1_0_0") {
+      if (version === "1_5_0" && !gfxDisabled) negotiatedVersion = "1_5_0";
+      else if (version === "1_1_0" && negotiatedVersion !== "1_5_0") {
         negotiatedVersion = "1_1_0";
       }
     }

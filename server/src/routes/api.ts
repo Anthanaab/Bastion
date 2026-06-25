@@ -151,7 +151,7 @@ router.post("/sessions/ping", authMiddleware, (req, res) => {
   );
   res.json({
     ok: true,
-    version: "1.0.15",
+    version: "1.0.16",
     host: host
       ? { id: host.id, name: host.name, protocol: host.protocol }
       : null,
