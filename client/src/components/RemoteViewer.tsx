@@ -36,6 +36,9 @@ export default function RemoteViewer({ hostId }: RemoteViewerProps) {
       if (cancelled || !containerRef.current) return;
 
       const tunnel = new Guacamole.WebSocketTunnel(wsBaseUrl("/ws/guacd"));
+      tunnel.receiveTimeout = 90000;
+      tunnel.unstableThreshold = 10000;
+
       const connectData = wsConnectData({ hostId });
       console.info(
         "[Bastion] WebSocket:",
@@ -43,6 +46,10 @@ export default function RemoteViewer({ hostId }: RemoteViewerProps) {
       );
 
       let guacdReady = false;
+      let lastW = 0;
+      let lastH = 0;
+      let sizeTimer: ReturnType<typeof setTimeout> | undefined;
+
       const client = new Guacamole.Client(tunnel);
       const display = client.getDisplay();
       const element = display.getElement();
@@ -56,9 +63,29 @@ export default function RemoteViewer({ hostId }: RemoteViewerProps) {
       const sendDisplaySize = () => {
         const container = containerRef.current;
         if (!container) return;
-        const w = Math.max(container.clientWidth, 800);
-        const h = Math.max(container.clientHeight, 600);
-        client.sendSize(w, h);
+        const w = container.clientWidth;
+        const h = container.clientHeight;
+        if (w < 100 || h < 100) return;
+        if (Math.abs(w - lastW) < 24 && Math.abs(h - lastH) < 24) return;
+
+        if (sizeTimer) clearTimeout(sizeTimer);
+        sizeTimer = setTimeout(() => {
+          lastW = w;
+          lastH = h;
+          client.sendSize(w, h);
+        }, 400);
+      };
+
+      const scale = () => {
+        const container = containerRef.current;
+        if (!container) return;
+        const dw = display.getWidth();
+        const dh = display.getHeight();
+        if (dw && dh) {
+          display.scale(
+            Math.min(container.clientWidth / dw, container.clientHeight / dh)
+          );
+        }
       };
 
       client.onsync = () => {
@@ -77,25 +104,12 @@ export default function RemoteViewer({ hostId }: RemoteViewerProps) {
       keyboard.onkeydown = (keysym: number) => client.sendKeyEvent(1, keysym);
       keyboard.onkeyup = (keysym: number) => client.sendKeyEvent(0, keysym);
 
-      const scale = () => {
-        const container = containerRef.current;
-        if (!container) return;
-        const dw = display.getWidth();
-        const dh = display.getHeight();
-        if (dw && dh) {
-          display.scale(
-            Math.min(container.clientWidth / dw, container.clientHeight / dh)
-          );
-        }
-      };
-
       tunnel.onstatechange = (state: number) => {
         if (state === Guacamole.Tunnel.State.CONNECTING) {
           setStatus("Connexion WebSocket…");
         } else if (state === Guacamole.Tunnel.State.OPEN) {
           guacdReady = true;
           setStatus("Ouverture du bureau distant…");
-          sendDisplaySize();
         }
       };
 
@@ -130,7 +144,7 @@ export default function RemoteViewer({ hostId }: RemoteViewerProps) {
             "Délai dépassé — identifiants RDP ou pare-feu Windows à vérifier"
           );
         }
-      }, 45000);
+      }, 60000);
 
       const resizeObserver = new ResizeObserver(() => {
         scale();
@@ -141,6 +155,7 @@ export default function RemoteViewer({ hostId }: RemoteViewerProps) {
       resizeObserver.observe(containerRef.current);
 
       cleanup = () => {
+        if (sizeTimer) clearTimeout(sizeTimer);
         window.clearTimeout(handshakeTimeout);
         window.clearTimeout(timeout);
         resizeObserver.disconnect();
@@ -159,10 +174,7 @@ export default function RemoteViewer({ hostId }: RemoteViewerProps) {
 
   return (
     <div className="relative h-full w-full overflow-hidden rounded-lg border border-bastion-700 bg-black">
-      <div
-        ref={containerRef}
-        className="absolute inset-0 flex items-center justify-center"
-      />
+      <div ref={containerRef} className="absolute inset-0 overflow-hidden" />
       <div
         className={`pointer-events-none absolute left-3 top-3 max-w-md rounded-md px-2 py-1 text-xs backdrop-blur ${
           error

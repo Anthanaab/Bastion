@@ -55,6 +55,7 @@ declare module "guacamole-common-js" {
     state: number;
     uuid: string | null;
     receiveTimeout: number;
+    unstableThreshold: number;
     oninstruction: ((opcode: string, parameters: string[]) => void) | null;
     onstatechange: ((state: number) => void) | null;
     onerror: ((status: Status) => void) | null;

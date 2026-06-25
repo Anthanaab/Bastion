@@ -61,21 +61,39 @@ export function readInstruction(
   return null;
 }
 
-/** Ignore tunnel-internal pings (empty opcode) — guacd cannot handle them. */
-export function filterInstructionsForGuacd(message: string): string {
-  const kept: string[] = [];
+/** Split tunnel keepalives (empty opcode) from instructions meant for guacd. */
+export function splitClientMessage(message: string): {
+  tunnelOnly: string;
+  forGuacd: string;
+} {
+  const tunnelOnly: string[] = [];
+  const forGuacd: string[] = [];
   let index = 0;
 
   while (index < message.length) {
     const instruction = readInstruction(message, index);
-    if (!instruction) break;
-    if (instruction.opcode.length > 0) {
-      kept.push(instruction.raw);
+    if (!instruction) {
+      const rest = message.slice(index);
+      if (rest) forGuacd.push(rest);
+      break;
+    }
+    if (instruction.opcode.length === 0) {
+      tunnelOnly.push(instruction.raw);
+    } else {
+      forGuacd.push(instruction.raw);
     }
     index = instruction.end;
   }
 
-  return kept.join("");
+  return {
+    tunnelOnly: tunnelOnly.join(""),
+    forGuacd: forGuacd.join(""),
+  };
+}
+
+/** @deprecated Use splitClientMessage — kept for compatibility */
+export function filterInstructionsForGuacd(message: string): string {
+  return splitClientMessage(message).forGuacd;
 }
 
 export class GuacamoleParser {

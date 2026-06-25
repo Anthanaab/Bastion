@@ -3,7 +3,7 @@ import { WebSocket } from "ws";
 import { getHost, createSession, endSession } from "../db";
 import { wsAuthFromRequest } from "../auth";
 import { GuacdClient, type ConnectionSettings } from "./guacd-client";
-import { toInstruction, filterInstructionsForGuacd } from "./guacamole-parser";
+import { toInstruction, splitClientMessage } from "./guacamole-parser";
 
 const DEFAULT_RDP_SECURITY = "nla|tls|rdp|any";
 
@@ -56,7 +56,6 @@ function buildSettings(
     settings["enable-wallpaper"] = "false";
     settings["enable-font-smoothing"] = "true";
     settings["enable-desktop-composition"] = "false";
-    settings["force-lossless"] = "true";
     settings["resize-method"] = "display-update";
   } else {
     settings["color-depth"] = "24";
@@ -198,9 +197,12 @@ export function handleGuacdConnection(
   ws.on("message", (data) => {
     const message =
       typeof data === "string" ? data : (data as Buffer).toString("utf8");
-    const filtered = filterInstructionsForGuacd(message);
-    if (filtered) {
-      guacdClient?.send(filtered, true);
+    const { tunnelOnly, forGuacd } = splitClientMessage(message);
+    if (tunnelOnly && ws.readyState === WebSocket.OPEN) {
+      ws.send(tunnelOnly);
+    }
+    if (forGuacd) {
+      guacdClient?.send(forGuacd, true);
     }
   });
 
