@@ -33,8 +33,11 @@ export function handleSshConnection(ws: WebSocket, request: IncomingMessage): vo
   const conn = new Client();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let stream: any = null;
+  let cleaned = false;
 
   const cleanup = () => {
+    if (cleaned) return;
+    cleaned = true;
     endSession(sessionId);
     try {
       conn.end();
@@ -47,6 +50,7 @@ export function handleSshConnection(ws: WebSocket, request: IncomingMessage): vo
     conn.shell({ cols, rows, term: "xterm-256color" }, (err, shellStream) => {
       if (err) {
         ws.send(JSON.stringify({ type: "error", message: err.message }));
+        cleanup();
         ws.close();
         return;
       }
@@ -104,6 +108,7 @@ export function handleSshConnection(ws: WebSocket, request: IncomingMessage): vo
   });
 
   ws.on("close", cleanup);
+  ws.on("error", cleanup);
 
   const connectConfig: Parameters<Client["connect"]>[0] = {
     host: host.hostname,

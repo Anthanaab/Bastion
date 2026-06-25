@@ -54,6 +54,7 @@ interface Store {
 
 let storePath = "";
 let store: Store = { users: [], hosts: [], sessions: [] };
+const liveSessionIds = new Set<string>();
 
 function decryptHost(host: StoredHost): Host {
   return {
@@ -112,7 +113,24 @@ export function initDatabase(dbPath: string): void {
     ? dbPath
     : path.join(dbPath.replace(/\.db$/, "") + ".json");
   load();
+  closeOrphanedSessions();
   migratePlaintextSecrets();
+}
+
+/** Sessions left open after a crash/restart are not actually active. */
+export function closeOrphanedSessions(): void {
+  let changed = false;
+  for (const session of store.sessions) {
+    if (!session.endedAt) {
+      session.endedAt = new Date().toISOString();
+      changed = true;
+    }
+  }
+  liveSessionIds.clear();
+  if (changed) {
+    persist();
+    console.log("[Bastion] Sessions orphelines fermées au démarrage");
+  }
 }
 
 export function ensureAdminUser(username: string, password: string): void {
@@ -210,11 +228,13 @@ export function createSession(hostId: string, protocol: Protocol): string {
     startedAt: new Date().toISOString(),
     endedAt: null,
   });
+  liveSessionIds.add(id);
   persist();
   return id;
 }
 
 export function endSession(id: string): void {
+  liveSessionIds.delete(id);
   const session = store.sessions.find((s) => s.id === id);
   if (session && !session.endedAt) {
     session.endedAt = new Date().toISOString();
@@ -229,7 +249,7 @@ export function getStats() {
   }
   return {
     totalHosts: store.hosts.length,
-    activeSessions: store.sessions.filter((s) => !s.endedAt).length,
+    activeSessions: liveSessionIds.size,
     byProtocol,
   };
 }

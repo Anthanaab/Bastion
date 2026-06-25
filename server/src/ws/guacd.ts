@@ -130,6 +130,7 @@ export function handleGuacdConnection(
   let opened = false;
   let attemptIndex = 0;
   let retrying = false;
+  let cleaned = false;
   const securityModes = protocol === "rdp" ? rdpSecurityModes() : [""];
   if (protocol === "rdp") {
     console.log(`[Guacd] Modes RDP à essayer: ${securityModes.join(" → ")}`);
@@ -242,10 +243,13 @@ export function handleGuacdConnection(
   });
 
   const cleanup = () => {
+    if (cleaned) return;
+    cleaned = true;
     clearTimeout(handshakeTimeout);
     endSession(sessionId);
     guacdClient?.close();
   };
 
   ws.on("close", cleanup);
+  ws.on("error", cleanup);
 }
