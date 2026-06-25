@@ -145,7 +145,9 @@ export function handleGuacdConnection(
   }, 30000);
 
   const sendToClient = (data: string) => {
-    if (ws.readyState === WebSocket.OPEN) ws.send(data);
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(data, { binary: false });
+    }
   };
 
   const startClient = (securityMode?: string) => {
@@ -222,12 +224,17 @@ export function handleGuacdConnection(
 
   startClient(protocol === "rdp" ? securityModes[0] : undefined);
 
+  let clientToGuacdBuffer = "";
+
   ws.on("message", (data) => {
     const message =
       typeof data === "string" ? data : (data as Buffer).toString("utf8");
-    const { tunnelOnly, forGuacd } = splitClientMessage(message);
+    clientToGuacdBuffer += message;
+    const { tunnelOnly, forGuacd, remainder } =
+      splitClientMessage(clientToGuacdBuffer);
+    clientToGuacdBuffer = remainder;
     if (tunnelOnly && ws.readyState === WebSocket.OPEN) {
-      ws.send(tunnelOnly);
+      ws.send(tunnelOnly, { binary: false });
     }
     if (forGuacd) {
       guacdClient?.send(forGuacd, true);

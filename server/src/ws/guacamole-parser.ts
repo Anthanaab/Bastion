@@ -65,6 +65,7 @@ export function readInstruction(
 export function splitClientMessage(message: string): {
   tunnelOnly: string;
   forGuacd: string;
+  remainder: string;
 } {
   const tunnelOnly: string[] = [];
   const forGuacd: string[] = [];
@@ -73,9 +74,11 @@ export function splitClientMessage(message: string): {
   while (index < message.length) {
     const instruction = readInstruction(message, index);
     if (!instruction) {
-      const rest = message.slice(index);
-      if (rest) forGuacd.push(rest);
-      break;
+      return {
+        tunnelOnly: tunnelOnly.join(""),
+        forGuacd: forGuacd.join(""),
+        remainder: message.slice(index),
+      };
     }
     if (instruction.opcode.length === 0) {
       tunnelOnly.push(instruction.raw);
@@ -88,6 +91,7 @@ export function splitClientMessage(message: string): {
   return {
     tunnelOnly: tunnelOnly.join(""),
     forGuacd: forGuacd.join(""),
+    remainder: "",
   };
 }
 
