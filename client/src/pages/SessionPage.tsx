@@ -1,16 +1,12 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import Layout from "../components/Layout";
 import SshTerminal from "../components/SshTerminal";
 import RemoteViewer from "../components/RemoteViewer";
 import { ProtocolBadge } from "../components/ProtocolBadge";
 import { api } from "../lib/api";
+import type { SessionControl } from "../lib/session";
 import type { Host } from "../types";
-
-export interface SessionControl {
-  connected: boolean;
-  disconnect: () => void;
-}
 
 export default function SessionPage() {
   const { hostId } = useParams<{ hostId: string }>();
@@ -18,6 +14,8 @@ export default function SessionPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [session, setSession] = useState<SessionControl | null>(null);
+  const [clipboardMsg, setClipboardMsg] = useState("");
+  const viewportRef = useRef<HTMLDivElement>(null);
 
   const handleSessionControl = useCallback((control: SessionControl | null) => {
     setSession(control);
@@ -35,6 +33,19 @@ export default function SessionPage() {
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
   }, [hostId]);
+
+  const handlePasteClipboard = async () => {
+    if (!session?.rdp) return;
+    setClipboardMsg("");
+    try {
+      await session.rdp.pasteClipboard();
+      setClipboardMsg("Presse-papiers envoyé");
+      setTimeout(() => setClipboardMsg(""), 2500);
+    } catch {
+      setClipboardMsg("Accès presse-papiers refusé");
+      setTimeout(() => setClipboardMsg(""), 2500);
+    }
+  };
 
   if (loading) {
     return (
@@ -63,10 +74,7 @@ export default function SessionPage() {
     <div className="flex h-screen flex-col bg-bastion-950">
       <header className="flex shrink-0 items-center justify-between border-b border-bastion-800 bg-bastion-950/90 px-4 py-3 backdrop-blur-md">
         <div className="flex items-center gap-4">
-          <Link
-            to="/"
-            className="btn-secondary py-2 text-xs"
-          >
+          <Link to="/" className="btn-secondary py-2 text-xs">
             ← Retour
           </Link>
           <div className="flex items-center gap-3">
@@ -83,7 +91,37 @@ export default function SessionPage() {
             <ProtocolBadge protocol={host.protocol} />
           </div>
         </div>
-        <div className="flex items-center gap-3">
+
+        <div className="flex items-center gap-2">
+          {session?.connected && session.rdp && (
+            <>
+              <button
+                type="button"
+                onClick={() => session.rdp!.toggleFullscreen()}
+                className="btn-secondary hidden py-2 text-xs sm:inline-flex"
+                title="Plein écran"
+              >
+                Plein écran
+              </button>
+              <button
+                type="button"
+                onClick={() => session.rdp!.sendCtrlAltDel()}
+                className="btn-secondary hidden py-2 text-xs sm:inline-flex"
+                title="Ctrl+Alt+Suppr"
+              >
+                Ctrl+Alt+Suppr
+              </button>
+              <button
+                type="button"
+                onClick={handlePasteClipboard}
+                className="btn-secondary hidden py-2 text-xs sm:inline-flex"
+                title="Coller le presse-papiers local vers le bureau distant"
+              >
+                Coller
+              </button>
+            </>
+          )}
+
           {session?.connected ? (
             <>
               <span className="flex items-center gap-2 text-xs font-medium text-emerald-400">
@@ -106,7 +144,13 @@ export default function SessionPage() {
         </div>
       </header>
 
-      <div className="min-h-0 flex-1 p-3">
+      {clipboardMsg && (
+        <div className="shrink-0 border-b border-bastion-800 bg-bastion-900/80 px-4 py-1.5 text-center text-xs text-bastion-glow">
+          {clipboardMsg}
+        </div>
+      )}
+
+      <div ref={viewportRef} className="min-h-0 flex-1 p-3">
         {host.protocol === "ssh" ? (
           <SshTerminal hostId={host.id} onSessionControl={handleSessionControl} />
         ) : (
@@ -114,6 +158,7 @@ export default function SessionPage() {
             hostId={host.id}
             protocol={host.protocol}
             onSessionControl={handleSessionControl}
+            viewportRef={viewportRef}
           />
         )}
       </div>

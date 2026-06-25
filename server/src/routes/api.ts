@@ -15,6 +15,7 @@ import {
   type Host,
 } from "../db";
 import { authMiddleware, signToken } from "../auth";
+import { probeTcp } from "../probe";
 import { isValidMac, wakeHost } from "../wol";
 
 const router = Router();
@@ -120,6 +121,21 @@ router.get("/hosts", authMiddleware, (_req, res) => {
   res.json(hosts);
 });
 
+router.get("/hosts/status", authMiddleware, async (_req, res) => {
+  const hosts = listHosts();
+  const entries = await Promise.all(
+    hosts.map(async (host) => {
+      try {
+        const online = await probeTcp(host.hostname, host.port);
+        return [host.id, online] as const;
+      } catch {
+        return [host.id, false] as const;
+      }
+    })
+  );
+  res.json(Object.fromEntries(entries));
+});
+
 router.get("/hosts/:id", authMiddleware, (req, res) => {
   const host = getHost(req.params.id);
   if (!host) {
@@ -218,7 +234,7 @@ router.post("/sessions/ping", authMiddleware, (req, res) => {
   );
   res.json({
     ok: true,
-    version: "1.2.1",
+    version: "1.3.0",
     host: host
       ? { id: host.id, name: host.name, protocol: host.protocol }
       : null,

@@ -53,6 +53,9 @@ export const api = {
 
   hosts: () => request<import("./types").Host[]>("/hosts"),
 
+  hostsStatus: () =>
+    request<Record<string, boolean>>("/hosts/status"),
+
   host: (id: string) =>
     request<import("./types").Host & { password: string; privateKey: string }>(
       `/hosts/${id}`

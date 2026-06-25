@@ -4,7 +4,7 @@ import { FitAddon } from "xterm-addon-fit";
 import { WebLinksAddon } from "xterm-addon-web-links";
 import "xterm/css/xterm.css";
 import { wsUrl } from "../lib/api";
-import type { SessionControl } from "../pages/SessionPage";
+import type { SessionControl } from "../lib/session";
 
 interface SshTerminalProps {
   hostId: string;

@@ -36,6 +36,8 @@ npm run dev
 - Bureau distant RDP/VNC via guacd
 - Gestion des hôtes (tags, couleurs, clés SSH, Wake-on-LAN)
 - Changement de mot de passe admin
+- Statut en ligne/hors ligne des machines (test TCP)
+- Outils RDP : plein écran, Ctrl+Alt+Suppr, presse-papiers
 - Authentification JWT + cookie sécurisé
 - Persistance JSON locale, sans base de données externe
 

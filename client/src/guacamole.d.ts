@@ -44,6 +44,26 @@ declare module "guacamole-common-js" {
     onkeyup: ((keysym: number) => void) | null;
   }
 
+  export class InputStream {
+    index: number;
+  }
+
+  export class OutputStream {
+    index: number;
+  }
+
+  export class StringReader {
+    constructor(stream: InputStream);
+    ontext: ((text: string) => void) | null;
+    onend: (() => void) | null;
+  }
+
+  export class StringWriter {
+    constructor(stream: OutputStream);
+    sendText(text: string): void;
+    sendEnd(): void;
+  }
+
   export abstract class Tunnel {
     static State: {
       CONNECTING: number;
@@ -87,6 +107,10 @@ declare module "guacamole-common-js" {
     onstatechange: ((state: number) => void) | null;
     onerror: ((status: Status) => void) | null;
     onsync: ((timestamp: number, frames: number) => void) | null;
+    onclipboard:
+      | ((stream: InputStream, mimetype: string) => void)
+      | null;
+    createClipboardStream(mimetype: string): OutputStream;
     sendMouseState(state: Mouse.State, applyDisplayScale?: boolean): void;
     sendKeyEvent(pressed: number, keysym: number): void;
     sendSize(width: number, height: number): void;

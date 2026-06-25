@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import Guacamole from "guacamole-common-js";
 import { api, wsBaseUrl, wsConnectData } from "../lib/api";
-import type { SessionControl } from "../pages/SessionPage";
+import type { SessionControl } from "../lib/session";
 
 interface RemoteViewerProps {
   hostId: string;
   protocol: "rdp" | "vnc";
   onSessionControl?: (control: SessionControl | null) => void;
+  viewportRef?: React.RefObject<HTMLDivElement | null>;
 }
 
 function viewportSize(container: HTMLElement): { width: number; height: number } {
@@ -15,9 +16,31 @@ function viewportSize(container: HTMLElement): { width: number; height: number }
   return { width, height };
 }
 
+const CTRL_KEYSYM = 0xffe3;
+const ALT_KEYSYM = 0xffe9;
+const DEL_KEYSYM = 0xffff;
+
+function sendCtrlAltDel(client: Guacamole.Client): void {
+  const keys = [CTRL_KEYSYM, ALT_KEYSYM, DEL_KEYSYM];
+  for (const keysym of keys) client.sendKeyEvent(1, keysym);
+  for (const keysym of [...keys].reverse()) client.sendKeyEvent(0, keysym);
+}
+
+async function pasteClipboard(client: Guacamole.Client): Promise<void> {
+  const text = await navigator.clipboard.readText();
+  if (!text) return;
+
+  const stream = client.createClipboardStream("text/plain");
+  const writer = new Guacamole.StringWriter(stream);
+  writer.sendText(text);
+  writer.sendEnd();
+}
+
 export default function RemoteViewer({
   hostId,
+  protocol,
   onSessionControl,
+  viewportRef,
 }: RemoteViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState("Connexion au serveur…");
@@ -58,24 +81,9 @@ export default function RemoteViewer({
         width: String(width),
         height: String(height),
       });
-      console.info(
-        "[Bastion] WebSocket:",
-        `${wsBaseUrl("/ws/guacd")}?${connectData}`
-      );
 
       let guacdReady = false;
       let clientConnected = false;
-
-      const publishControl = (client: Guacamole.Client) => {
-        onSessionControlRef.current?.({
-          connected: true,
-          disconnect: () => client.disconnect(),
-        });
-      };
-
-      const clearControl = () => {
-        onSessionControlRef.current?.(null);
-      };
 
       const client = new Guacamole.Client(tunnel);
       const display = client.getDisplay();
@@ -86,6 +94,35 @@ export default function RemoteViewer({
       element.style.display = "block";
       element.style.width = "100%";
       element.style.height = "100%";
+
+      const publishControl = () => {
+        const control: SessionControl = {
+          connected: true,
+          disconnect: () => client.disconnect(),
+        };
+
+        if (protocol === "rdp") {
+          control.rdp = {
+            toggleFullscreen: () => {
+              const target = viewportRef?.current ?? containerRef.current;
+              if (!target) return;
+              if (!document.fullscreenElement) {
+                void target.requestFullscreen();
+              } else {
+                void document.exitFullscreen();
+              }
+            },
+            sendCtrlAltDel: () => sendCtrlAltDel(client),
+            pasteClipboard: () => pasteClipboard(client),
+          };
+        }
+
+        onSessionControlRef.current?.(control);
+      };
+
+      const clearControl = () => {
+        onSessionControlRef.current?.(null);
+      };
 
       const scale = () => {
         const container = containerRef.current;
@@ -102,6 +139,22 @@ export default function RemoteViewer({
       client.onsync = () => {
         scale();
       };
+
+      if (protocol === "rdp") {
+        client.onclipboard = (stream, mimetype) => {
+          if (!mimetype.startsWith("text/")) return;
+          const reader = new Guacamole.StringReader(stream);
+          let data = "";
+          reader.ontext = (text: string) => {
+            data += text;
+          };
+          reader.onend = () => {
+            if (data && navigator.clipboard?.writeText) {
+              void navigator.clipboard.writeText(data).catch(() => {});
+            }
+          };
+        };
+      }
 
       const mouse = new Guacamole.Mouse(element);
       mouse.onmousedown =
@@ -129,7 +182,7 @@ export default function RemoteViewer({
           clientConnected = true;
           setStatus("Connecté");
           setError("");
-          publishControl(client);
+          publishControl();
           scale();
         } else if (state === Guacamole.Client.State.DISCONNECTED && guacdReady) {
           clientConnected = false;
@@ -184,7 +237,7 @@ export default function RemoteViewer({
       onSessionControlRef.current?.(null);
       cleanup?.();
     };
-  }, [hostId]);
+  }, [hostId, protocol]);
 
   return (
     <div className="relative h-full w-full overflow-hidden rounded-lg border border-bastion-700 bg-black">

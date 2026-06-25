@@ -71,11 +71,13 @@ export default function DashboardPage() {
   const [filter, setFilter] = useState<string>("all");
   const [modalOpen, setModalOpen] = useState(false);
   const [editingHost, setEditingHost] = useState<Host | null>(null);
+  const [hostStatus, setHostStatus] = useState<Record<string, boolean>>({});
 
   const load = async () => {
     const [h, s] = await Promise.all([api.hosts(), api.stats()]);
     setHosts(h);
     setStats(s);
+    api.hostsStatus().then(setHostStatus).catch(() => setHostStatus({}));
   };
 
   useEffect(() => {
@@ -157,12 +159,20 @@ export default function DashboardPage() {
             ))}
           </div>
         </div>
-        <button
-          onClick={() => setModalOpen(true)}
-          className="btn-primary shrink-0"
-        >
-          + Ajouter une machine
-        </button>
+        <div className="flex shrink-0 gap-2">
+          <button
+            onClick={() =>
+              api.hostsStatus().then(setHostStatus).catch(() => {})
+            }
+            className="btn-secondary"
+            title="Actualiser le statut réseau"
+          >
+            ↻
+          </button>
+          <button onClick={() => setModalOpen(true)} className="btn-primary">
+            + Ajouter une machine
+          </button>
+        </div>
       </div>
 
       {loading ? (
@@ -197,6 +207,7 @@ export default function DashboardPage() {
             <HostCard
               key={host.id}
               host={host}
+              online={host.id in hostStatus ? hostStatus[host.id] : null}
               onEdit={openEdit}
               onDelete={handleDelete}
             />

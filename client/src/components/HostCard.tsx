@@ -6,11 +6,17 @@ import { ProtocolBadge, protocolIcon } from "./ProtocolBadge";
 
 interface HostCardProps {
   host: Host;
+  online?: boolean | null;
   onEdit: (host: Host) => void;
   onDelete: (host: Host) => void;
 }
 
-export default function HostCard({ host, onEdit, onDelete }: HostCardProps) {
+export default function HostCard({
+  host,
+  online = null,
+  onEdit,
+  onDelete,
+}: HostCardProps) {
   const [waking, setWaking] = useState(false);
   const [wakeMsg, setWakeMsg] = useState("");
 
@@ -47,7 +53,17 @@ export default function HostCard({ host, onEdit, onDelete }: HostCardProps) {
               {protocolIcon(host.protocol)}
             </div>
             <div>
-              <h3 className="font-semibold text-white">{host.name}</h3>
+              <div className="flex items-center gap-2">
+                <h3 className="font-semibold text-white">{host.name}</h3>
+                {online !== null && (
+                  <span
+                    className={`h-2 w-2 rounded-full ${
+                      online ? "bg-emerald-400" : "bg-red-500"
+                    }`}
+                    title={online ? "En ligne" : "Hors ligne"}
+                  />
+                )}
+              </div>
               <p className="font-mono text-xs text-slate-500">
                 {host.hostname}:{host.port}
               </p>
