@@ -10,6 +10,7 @@ export interface Host {
   password: string | null;
   privateKey: string | null;
   macAddress: string | null;
+  keyboardLayout: string | null;
   color: string;
   tags: string;
   createdAt: string;

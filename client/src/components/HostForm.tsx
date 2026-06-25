@@ -1,6 +1,10 @@
 import { useState } from "react";
 import type { Host, Protocol } from "../types";
 import { defaultPort } from "./ProtocolBadge";
+import {
+  DEFAULT_RDP_KEYBOARD,
+  RDP_KEYBOARD_LAYOUTS,
+} from "../lib/keyboardLayouts";
 
 const COLORS = [
   "#f59e0b",
@@ -29,6 +33,9 @@ export default function HostForm({ initial, onSubmit, onCancel }: HostFormProps)
   const [color, setColor] = useState(initial?.color ?? COLORS[0]);
   const [tags, setTags] = useState(initial?.tags ?? "");
   const [macAddress, setMacAddress] = useState(initial?.macAddress ?? "");
+  const [keyboardLayout, setKeyboardLayout] = useState(
+    initial?.keyboardLayout ?? DEFAULT_RDP_KEYBOARD
+  );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -51,6 +58,8 @@ export default function HostForm({ initial, onSubmit, onCancel }: HostFormProps)
         password: password || undefined,
         privateKey: privateKey || undefined,
         macAddress: macAddress.trim() || null,
+        keyboardLayout:
+          protocol === "rdp" ? keyboardLayout || DEFAULT_RDP_KEYBOARD : null,
         color,
         tags,
       });
@@ -169,6 +178,25 @@ export default function HostForm({ initial, onSubmit, onCancel }: HostFormProps)
           />
         </div>
       </div>
+
+      {protocol === "rdp" && (
+        <div>
+          <label className="mb-1.5 block text-xs font-medium text-slate-400">
+            Disposition clavier RDP
+          </label>
+          <select
+            className="input-field"
+            value={keyboardLayout}
+            onChange={(e) => setKeyboardLayout(e.target.value)}
+          >
+            {RDP_KEYBOARD_LAYOUTS.map((layout) => (
+              <option key={layout.value} value={layout.value}>
+                {layout.label}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       <div>
         <label className="mb-1.5 block text-xs font-medium text-slate-400">

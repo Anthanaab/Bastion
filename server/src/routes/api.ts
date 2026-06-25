@@ -52,6 +52,7 @@ const hostSchema = z.object({
   password: z.string().nullable().optional(),
   privateKey: z.string().nullable().optional(),
   macAddress: macAddressSchema,
+  keyboardLayout: z.string().max(64).nullable().optional(),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/).default("#f59e0b"),
   tags: z.string().max(500).default(""),
 });
@@ -162,6 +163,7 @@ router.post("/hosts", authMiddleware, (req, res) => {
     password: parsed.data.password ?? null,
     privateKey: parsed.data.privateKey ?? null,
     macAddress: parsed.data.macAddress ?? null,
+    keyboardLayout: parsed.data.keyboardLayout ?? null,
   });
 
   res.status(201).json(host);
@@ -234,7 +236,7 @@ router.post("/sessions/ping", authMiddleware, (req, res) => {
   );
   res.json({
     ok: true,
-    version: "1.3.1",
+    version: "1.3.2",
     host: host
       ? { id: host.id, name: host.name, protocol: host.protocol }
       : null,

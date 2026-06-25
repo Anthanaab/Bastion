@@ -15,6 +15,8 @@ export default function SessionPage() {
   const [loading, setLoading] = useState(true);
   const [session, setSession] = useState<SessionControl | null>(null);
   const [clipboardMsg, setClipboardMsg] = useState("");
+  const [clipboardOpen, setClipboardOpen] = useState(false);
+  const [clipboardText, setClipboardText] = useState("");
   const viewportRef = useRef<HTMLDivElement>(null);
 
   const handleSessionControl = useCallback((control: SessionControl | null) => {
@@ -42,9 +44,17 @@ export default function SessionPage() {
       setClipboardMsg("Presse-papiers envoyé");
       setTimeout(() => setClipboardMsg(""), 2500);
     } catch {
-      setClipboardMsg("Accès presse-papiers refusé");
-      setTimeout(() => setClipboardMsg(""), 2500);
+      setClipboardText("");
+      setClipboardOpen(true);
     }
+  };
+
+  const handleSendClipboardText = () => {
+    if (!session?.rdp || !clipboardText.trim()) return;
+    session.rdp.pasteText(clipboardText);
+    setClipboardOpen(false);
+    setClipboardMsg("Texte envoyé au bureau distant");
+    setTimeout(() => setClipboardMsg(""), 2500);
   };
 
   if (loading) {
@@ -115,7 +125,7 @@ export default function SessionPage() {
                 type="button"
                 onClick={handlePasteClipboard}
                 className="btn-secondary hidden py-2 text-xs sm:inline-flex"
-                title="Coller le presse-papiers local vers le bureau distant"
+                title="Coller vers le bureau distant (ou Ctrl+V dans la session)"
               >
                 Coller
               </button>
@@ -150,7 +160,7 @@ export default function SessionPage() {
         </div>
       )}
 
-      <div ref={viewportRef} className="min-h-0 flex-1 p-3">
+      <div ref={viewportRef} className="relative min-h-0 flex-1 p-3">
         {host.protocol === "ssh" ? (
           <SshTerminal hostId={host.id} onSessionControl={handleSessionControl} />
         ) : (
@@ -162,6 +172,49 @@ export default function SessionPage() {
           />
         )}
       </div>
+
+      {clipboardOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            onClick={() => setClipboardOpen(false)}
+          />
+          <div className="glass-card relative z-10 w-full max-w-md p-5">
+            <h3 className="mb-2 text-sm font-semibold text-white">
+              Coller du texte
+            </h3>
+            <p className="mb-3 text-xs text-slate-400">
+              Le navigateur bloque l&apos;accès direct au presse-papiers.
+              Collez ici (Ctrl+V) ou saisissez le texte à envoyer au PC distant.
+              Vous pouvez aussi cliquer dans la session RDP puis Ctrl+V.
+            </p>
+            <textarea
+              className="input-field mb-4 min-h-[120px] font-mono text-sm"
+              value={clipboardText}
+              onChange={(e) => setClipboardText(e.target.value)}
+              autoFocus
+              placeholder="Collez votre texte ici…"
+            />
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => setClipboardOpen(false)}
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={handleSendClipboardText}
+                disabled={!clipboardText.trim()}
+              >
+                Envoyer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

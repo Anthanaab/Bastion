@@ -26,14 +26,42 @@ function sendCtrlAltDel(client: Guacamole.Client): void {
   for (const keysym of [...keys].reverse()) client.sendKeyEvent(0, keysym);
 }
 
-async function pasteClipboard(client: Guacamole.Client): Promise<void> {
-  const text = await navigator.clipboard.readText();
+function sendTextToRemote(client: Guacamole.Client, text: string): void {
   if (!text) return;
-
   const stream = client.createClipboardStream("text/plain");
   const writer = new Guacamole.StringWriter(stream);
   writer.sendText(text);
   writer.sendEnd();
+}
+
+async function pasteClipboard(client: Guacamole.Client): Promise<void> {
+  if (!navigator.clipboard?.readText) {
+    throw new Error("Clipboard API indisponible");
+  }
+  const text = await navigator.clipboard.readText();
+  if (!text) throw new Error("Presse-papiers vide");
+  sendTextToRemote(client, text);
+}
+
+function copyToLocalClipboard(text: string): void {
+  if (navigator.clipboard?.writeText) {
+    void navigator.clipboard.writeText(text).catch(() => {
+      copyToLocalClipboardFallback(text);
+    });
+    return;
+  }
+  copyToLocalClipboardFallback(text);
+}
+
+function copyToLocalClipboardFallback(text: string): void {
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  document.body.appendChild(textarea);
+  textarea.select();
+  document.execCommand("copy");
+  document.body.removeChild(textarea);
 }
 
 export default function RemoteViewer({
@@ -94,6 +122,16 @@ export default function RemoteViewer({
       element.style.display = "block";
       element.style.width = "100%";
       element.style.height = "100%";
+      element.tabIndex = 0;
+
+      const onPaste = (event: ClipboardEvent) => {
+        const text = event.clipboardData?.getData("text/plain");
+        if (text) {
+          event.preventDefault();
+          sendTextToRemote(client, text);
+        }
+      };
+      element.addEventListener("paste", onPaste);
 
       const publishControl = () => {
         const control: SessionControl = {
@@ -114,6 +152,7 @@ export default function RemoteViewer({
             },
             sendCtrlAltDel: () => sendCtrlAltDel(client),
             pasteClipboard: () => pasteClipboard(client),
+            pasteText: (text: string) => sendTextToRemote(client, text),
           };
         }
 
@@ -149,9 +188,7 @@ export default function RemoteViewer({
             data += text;
           };
           reader.onend = () => {
-            if (data && navigator.clipboard?.writeText) {
-              void navigator.clipboard.writeText(data).catch(() => {});
-            }
+            if (data) copyToLocalClipboard(data);
           };
         };
       }
@@ -222,6 +259,7 @@ export default function RemoteViewer({
 
       cleanup = () => {
         if (clientConnected) clearControl();
+        element.removeEventListener("paste", onPaste);
         window.clearTimeout(handshakeTimeout);
         window.clearTimeout(timeout);
         resizeObserver.disconnect();

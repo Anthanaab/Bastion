@@ -31,6 +31,14 @@ function rdpSecurityModes(): string[] {
     .filter(Boolean);
 }
 
+function rdpKeyboardLayout(host: NonNullable<ReturnType<typeof getHost>>): string {
+  return (
+    host.keyboardLayout?.trim() ||
+    process.env.BASTION_RDP_KEYBOARD_LAYOUT?.trim() ||
+    "fr-fr-azerty"
+  );
+}
+
 function isRdpSecurityError(data: string): boolean {
   return /wrong security type|security negotiation failed/i.test(data);
 }
@@ -76,6 +84,7 @@ function buildSettings(
     if (rdpDisableGfx()) {
       settings["disable-gfx"] = "true";
     }
+    settings["server-layout"] = rdpKeyboardLayout(host);
   } else {
     settings["color-depth"] = "24";
     settings.cursor = "remote";
