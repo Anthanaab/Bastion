@@ -18,6 +18,7 @@ services:
       DATABASE_PATH: /app/data/bastion.json
       BASTION_RDP_SECURITY: "${BASTION_RDP_SECURITY:-nla|tls|rdp|any}"
       BASTION_RDP_DISABLE_GFX: "${BASTION_RDP_DISABLE_GFX:-true}"
+      BASTION_WOL_BROADCAST: "${BASTION_WOL_BROADCAST:-}"
     depends_on:
       guacd:
         condition: service_started

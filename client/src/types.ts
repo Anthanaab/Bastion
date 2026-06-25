@@ -9,6 +9,7 @@ export interface Host {
   username: string;
   password: string | null;
   privateKey: string | null;
+  macAddress: string | null;
   color: string;
   tags: string;
   createdAt: string;

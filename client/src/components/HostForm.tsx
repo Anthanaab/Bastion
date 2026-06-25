@@ -28,6 +28,7 @@ export default function HostForm({ initial, onSubmit, onCancel }: HostFormProps)
   const [privateKey, setPrivateKey] = useState("");
   const [color, setColor] = useState(initial?.color ?? COLORS[0]);
   const [tags, setTags] = useState(initial?.tags ?? "");
+  const [macAddress, setMacAddress] = useState(initial?.macAddress ?? "");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -49,6 +50,7 @@ export default function HostForm({ initial, onSubmit, onCancel }: HostFormProps)
         username,
         password: password || undefined,
         privateKey: privateKey || undefined,
+        macAddress: macAddress.trim() || null,
         color,
         tags,
       });
@@ -166,6 +168,21 @@ export default function HostForm({ initial, onSubmit, onCancel }: HostFormProps)
             placeholder="prod, linux, web"
           />
         </div>
+      </div>
+
+      <div>
+        <label className="mb-1.5 block text-xs font-medium text-slate-400">
+          Adresse MAC (Wake-on-LAN)
+        </label>
+        <input
+          className="input-field font-mono"
+          value={macAddress}
+          onChange={(e) => setMacAddress(e.target.value)}
+          placeholder="AA:BB:CC:DD:EE:FF"
+        />
+        <p className="mt-1 text-xs text-slate-500">
+          Optionnel — permet de réveiller la machine à distance.
+        </p>
       </div>
 
       {protocol === "ssh" && (

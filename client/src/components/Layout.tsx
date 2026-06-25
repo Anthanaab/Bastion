@@ -42,7 +42,13 @@ export default function Layout({
             </div>
           </Link>
 
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
+            <Link
+              to="/settings"
+              className="btn-secondary hidden text-xs sm:inline-flex"
+            >
+              Paramètres
+            </Link>
             <span className="hidden text-sm text-slate-400 sm:block">
               {user?.username}
             </span>

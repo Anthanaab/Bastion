@@ -1,5 +1,7 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import type { Host } from "../types";
+import { api } from "../lib/api";
 import { ProtocolBadge, protocolIcon } from "./ProtocolBadge";
 
 interface HostCardProps {
@@ -9,9 +11,26 @@ interface HostCardProps {
 }
 
 export default function HostCard({ host, onEdit, onDelete }: HostCardProps) {
+  const [waking, setWaking] = useState(false);
+  const [wakeMsg, setWakeMsg] = useState("");
+
   const tags = host.tags
     ? host.tags.split(",").map((t) => t.trim()).filter(Boolean)
     : [];
+
+  const handleWake = async () => {
+    setWaking(true);
+    setWakeMsg("");
+    try {
+      await api.wakeHost(host.id);
+      setWakeMsg("Paquet WoL envoyé");
+      setTimeout(() => setWakeMsg(""), 3000);
+    } catch (err) {
+      setWakeMsg(err instanceof Error ? err.message : "Échec WoL");
+    } finally {
+      setWaking(false);
+    }
+  };
 
   return (
     <article
@@ -44,6 +63,12 @@ export default function HostCard({ host, onEdit, onDelete }: HostCardProps) {
           </p>
         )}
 
+        {host.macAddress && (
+          <p className="mb-3 font-mono text-xs text-slate-500">
+            MAC : {host.macAddress}
+          </p>
+        )}
+
         {tags.length > 0 && (
           <div className="mb-4 flex flex-wrap gap-1.5">
             {tags.map((tag) => (
@@ -57,6 +82,10 @@ export default function HostCard({ host, onEdit, onDelete }: HostCardProps) {
           </div>
         )}
 
+        {wakeMsg && (
+          <p className="mb-3 text-xs text-bastion-glow">{wakeMsg}</p>
+        )}
+
         <div className="flex gap-2">
           <Link
             to={`/session/${host.id}`}
@@ -64,6 +93,16 @@ export default function HostCard({ host, onEdit, onDelete }: HostCardProps) {
           >
             Connexion
           </Link>
+          {host.macAddress && (
+            <button
+              onClick={handleWake}
+              disabled={waking}
+              className="btn-secondary px-3"
+              title="Wake-on-LAN"
+            >
+              {waking ? "…" : "⚡"}
+            </button>
+          )}
           <button
             onClick={() => onEdit(host)}
             className="btn-secondary px-3"

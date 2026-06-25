@@ -19,6 +19,7 @@ export interface Host {
   username: string;
   password: string | null;
   privateKey: string | null;
+  macAddress: string | null;
   color: string;
   tags: string;
   createdAt: string;
@@ -57,6 +58,7 @@ let store: Store = { users: [], hosts: [], sessions: [] };
 function decryptHost(host: StoredHost): Host {
   return {
     ...host,
+    macAddress: host.macAddress ?? null,
     password: decryptNullable(host.password),
     privateKey: decryptNullable(host.privateKey),
   };
@@ -129,6 +131,17 @@ export function ensureAdminUser(username: string, password: string): void {
 
 export function findUserByUsername(username: string): User | undefined {
   return store.users.find((u) => u.username === username);
+}
+
+export function updateUserPassword(
+  userId: string,
+  newPassword: string
+): boolean {
+  const user = store.users.find((u) => u.id === userId);
+  if (!user) return false;
+  user.passwordHash = bcrypt.hashSync(newPassword, 12);
+  persist();
+  return true;
 }
 
 export function listHosts(): Host[] {
