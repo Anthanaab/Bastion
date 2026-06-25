@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import Layout from "../components/Layout";
 import SshTerminal from "../components/SshTerminal";
@@ -7,11 +7,25 @@ import { ProtocolBadge } from "../components/ProtocolBadge";
 import { api } from "../lib/api";
 import type { Host } from "../types";
 
+export interface SessionControl {
+  connected: boolean;
+  disconnect: () => void;
+}
+
 export default function SessionPage() {
   const { hostId } = useParams<{ hostId: string }>();
   const [host, setHost] = useState<Host | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [session, setSession] = useState<SessionControl | null>(null);
+
+  const handleSessionControl = useCallback((control: SessionControl | null) => {
+    setSession(control);
+  }, []);
+
+  useEffect(() => {
+    setSession(null);
+  }, [hostId]);
 
   useEffect(() => {
     if (!hostId) return;
@@ -69,16 +83,38 @@ export default function SessionPage() {
             <ProtocolBadge protocol={host.protocol} />
           </div>
         </div>
-        <div className="hidden text-xs text-slate-500 sm:block">
-          Session {host.protocol.toUpperCase()}
+        <div className="flex items-center gap-3">
+          {session?.connected ? (
+            <>
+              <span className="flex items-center gap-2 text-xs font-medium text-emerald-400">
+                <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-400" />
+                Connecté
+              </span>
+              <button
+                type="button"
+                onClick={() => session.disconnect()}
+                className="rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-xs font-semibold text-red-300 transition hover:bg-red-500/20"
+              >
+                Déconnecter
+              </button>
+            </>
+          ) : (
+            <span className="text-xs text-slate-500">
+              Session {host.protocol.toUpperCase()}
+            </span>
+          )}
         </div>
       </header>
 
       <div className="min-h-0 flex-1 p-3">
         {host.protocol === "ssh" ? (
-          <SshTerminal hostId={host.id} />
+          <SshTerminal hostId={host.id} onSessionControl={handleSessionControl} />
         ) : (
-          <RemoteViewer hostId={host.id} protocol={host.protocol} />
+          <RemoteViewer
+            hostId={host.id}
+            protocol={host.protocol}
+            onSessionControl={handleSessionControl}
+          />
         )}
       </div>
     </div>

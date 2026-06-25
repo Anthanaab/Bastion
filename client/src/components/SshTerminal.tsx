@@ -4,18 +4,26 @@ import { FitAddon } from "xterm-addon-fit";
 import { WebLinksAddon } from "xterm-addon-web-links";
 import "xterm/css/xterm.css";
 import { wsUrl } from "../lib/api";
+import type { SessionControl } from "../pages/SessionPage";
 
 interface SshTerminalProps {
   hostId: string;
+  onSessionControl?: (control: SessionControl | null) => void;
 }
 
-export default function SshTerminal({ hostId }: SshTerminalProps) {
+export default function SshTerminal({
+  hostId,
+  onSessionControl,
+}: SshTerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
+  const onSessionControlRef = useRef(onSessionControl);
+  onSessionControlRef.current = onSessionControl;
 
   useEffect(() => {
     if (!containerRef.current) return;
 
+    let connected = false;
     const term = new Terminal({
       cursorBlink: true,
       fontFamily: "'JetBrains Mono', Consolas, monospace",
@@ -45,9 +53,22 @@ export default function SshTerminal({ hostId }: SshTerminalProps) {
 
     const cols = term.cols;
     const rows = term.rows;
-    const ws = new WebSocket(wsUrl("/ws/ssh", { hostId, cols: String(cols), rows: String(rows) }));
+    const ws = new WebSocket(
+      wsUrl("/ws/ssh", { hostId, cols: String(cols), rows: String(rows) })
+    );
 
     ws.binaryType = "arraybuffer";
+
+    const publishControl = () => {
+      onSessionControlRef.current?.({
+        connected,
+        disconnect: () => ws.close(),
+      });
+    };
+
+    const clearControl = () => {
+      onSessionControlRef.current?.(null);
+    };
 
     ws.onopen = () => {
       term.writeln("\x1b[38;5;214m[Bastion]\x1b[0m Connexion SSH en cours…");
@@ -60,6 +81,8 @@ export default function SshTerminal({ hostId }: SshTerminalProps) {
           if (msg.type === "error") {
             term.writeln(`\r\n\x1b[31mErreur : ${msg.message}\x1b[0m`);
           } else if (msg.type === "connected") {
+            connected = true;
+            publishControl();
             term.writeln("\x1b[32mConnecté.\x1b[0m\r\n");
           }
         } catch {
@@ -71,6 +94,8 @@ export default function SshTerminal({ hostId }: SshTerminalProps) {
     };
 
     ws.onclose = () => {
+      connected = false;
+      clearControl();
       term.writeln("\r\n\x1b[33mSession terminée.\x1b[0m");
     };
 
@@ -93,6 +118,7 @@ export default function SshTerminal({ hostId }: SshTerminalProps) {
     resizeObserver.observe(containerRef.current);
 
     return () => {
+      clearControl();
       resizeObserver.disconnect();
       ws.close();
       term.dispose();

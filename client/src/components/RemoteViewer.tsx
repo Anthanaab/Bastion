@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import Guacamole from "guacamole-common-js";
 import { api, wsBaseUrl, wsConnectData } from "../lib/api";
+import type { SessionControl } from "../pages/SessionPage";
 
 interface RemoteViewerProps {
   hostId: string;
   protocol: "rdp" | "vnc";
+  onSessionControl?: (control: SessionControl | null) => void;
 }
 
 function viewportSize(container: HTMLElement): { width: number; height: number } {
@@ -13,10 +15,15 @@ function viewportSize(container: HTMLElement): { width: number; height: number }
   return { width, height };
 }
 
-export default function RemoteViewer({ hostId }: RemoteViewerProps) {
+export default function RemoteViewer({
+  hostId,
+  onSessionControl,
+}: RemoteViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState("Connexion au serveur…");
   const [error, setError] = useState("");
+  const onSessionControlRef = useRef(onSessionControl);
+  onSessionControlRef.current = onSessionControl;
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -57,6 +64,18 @@ export default function RemoteViewer({ hostId }: RemoteViewerProps) {
       );
 
       let guacdReady = false;
+      let clientConnected = false;
+
+      const publishControl = (client: Guacamole.Client) => {
+        onSessionControlRef.current?.({
+          connected: true,
+          disconnect: () => client.disconnect(),
+        });
+      };
+
+      const clearControl = () => {
+        onSessionControlRef.current?.(null);
+      };
 
       const client = new Guacamole.Client(tunnel);
       const display = client.getDisplay();
@@ -107,15 +126,21 @@ export default function RemoteViewer({ hostId }: RemoteViewerProps) {
 
       client.onstatechange = (state: number) => {
         if (state === Guacamole.Client.State.CONNECTED) {
+          clientConnected = true;
           setStatus("Connecté");
           setError("");
+          publishControl(client);
           scale();
         } else if (state === Guacamole.Client.State.DISCONNECTED && guacdReady) {
+          clientConnected = false;
+          clearControl();
           setStatus("Déconnecté");
         }
       };
 
       client.onerror = (err: Guacamole.Status) => {
+        clientConnected = false;
+        clearControl();
         setError(err.message || "Erreur de connexion distante");
       };
 
@@ -143,6 +168,7 @@ export default function RemoteViewer({ hostId }: RemoteViewerProps) {
       resizeObserver.observe(containerRef.current);
 
       cleanup = () => {
+        if (clientConnected) clearControl();
         window.clearTimeout(handshakeTimeout);
         window.clearTimeout(timeout);
         resizeObserver.disconnect();
@@ -155,6 +181,7 @@ export default function RemoteViewer({ hostId }: RemoteViewerProps) {
 
     return () => {
       cancelled = true;
+      onSessionControlRef.current?.(null);
       cleanup?.();
     };
   }, [hostId]);
