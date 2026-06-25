@@ -10,6 +10,7 @@ services:
     environment:
       PORT: "3000"
       JWT_SECRET: ${JWT_SECRET:-changez-moi-en-production-avec-une-longue-chaine-aleatoire}
+      BASTION_ENCRYPTION_KEY: ${BASTION_ENCRYPTION_KEY:-}
       BASTION_ADMIN_USER: ${BASTION_ADMIN_USER:-admin}
       BASTION_ADMIN_PASSWORD: ${BASTION_ADMIN_PASSWORD:-admin}
       GUACD_HOST: guacd

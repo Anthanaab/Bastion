@@ -42,7 +42,7 @@ npm run dev
 
 > Ne exposez pas Bastion directement sur Internet sans protection.
 
-- Changez `JWT_SECRET` et le mot de passe admin
+- Changez `JWT_SECRET`, `BASTION_ENCRYPTION_KEY` et le mot de passe admin
 - Passez par un VPN (Tailscale, WireGuard) ou un reverse proxy HTTPS
 - Limitez l'accès réseau au conteneur
 
@@ -60,6 +60,7 @@ Navigateur ──► Bastion (Node.js) ──► SSH direct
 |----------|-------------|--------|
 | `PORT` | Port HTTP | `3000` |
 | `JWT_SECRET` | Secret de signature JWT | *(obligatoire en prod)* |
+| `BASTION_ENCRYPTION_KEY` | Clé AES-256 pour mots de passe hôtes (64 hex) | dérivée de `JWT_SECRET` |
 | `BASTION_ADMIN_USER` | Utilisateur admin initial | `admin` |
 | `BASTION_ADMIN_PASSWORD` | Mot de passe admin initial | `admin` |
 | `GUACD_HOST` | Hôte guacd | `guacd` |
