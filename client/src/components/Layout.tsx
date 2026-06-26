@@ -44,6 +44,12 @@ export default function Layout({
 
           <div className="flex items-center gap-3">
             <Link
+              to="/activity"
+              className="btn-secondary hidden text-xs sm:inline-flex"
+            >
+              Activité
+            </Link>
+            <Link
               to="/settings"
               className="btn-secondary hidden text-xs sm:inline-flex"
             >

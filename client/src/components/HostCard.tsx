@@ -9,6 +9,7 @@ interface HostCardProps {
   online?: boolean | null;
   onEdit: (host: Host) => void;
   onDelete: (host: Host) => void;
+  onTagClick?: (tag: string) => void;
 }
 
 export default function HostCard({
@@ -16,6 +17,7 @@ export default function HostCard({
   online = null,
   onEdit,
   onDelete,
+  onTagClick,
 }: HostCardProps) {
   const [waking, setWaking] = useState(false);
   const [wakeMsg, setWakeMsg] = useState("");
@@ -92,12 +94,16 @@ export default function HostCard({
         {tags.length > 0 && (
           <div className="mb-4 flex flex-wrap gap-1.5">
             {tags.map((tag) => (
-              <span
+              <button
                 key={tag}
-                className="rounded-md bg-bastion-800 px-2 py-0.5 text-xs text-slate-400"
+                type="button"
+                onClick={() => onTagClick?.(tag)}
+                className={`rounded-md bg-bastion-800 px-2 py-0.5 text-xs text-slate-400 ${
+                  onTagClick ? "hover:bg-bastion-700 hover:text-white" : ""
+                }`}
               >
                 {tag}
-              </span>
+              </button>
             ))}
           </div>
         )}

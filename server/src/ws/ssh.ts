@@ -1,10 +1,11 @@
 import type { IncomingMessage } from "http";
 import { Client } from "ssh2";
 import { WebSocket } from "ws";
-import { getHost, createSession, endSession } from "../db";
+import { getHost, createSession, endSession, getSession } from "../db";
 import { wsAuthFromRequest } from "../auth";
 import { attachWsKeepAlive } from "./ws-keepalive";
 import { verifySshHostKey } from "../ssh-known-hosts";
+import { logAudit } from "../audit";
 
 export function handleSshConnection(ws: WebSocket, request: IncomingMessage): void {
   const url = request.url ?? "";
@@ -31,7 +32,12 @@ export function handleSshConnection(ws: WebSocket, request: IncomingMessage): vo
     return;
   }
 
-  const sessionId = createSession(hostId, "ssh");
+  const sessionId = createSession(hostId, "ssh", user.username);
+  logAudit(user.username, "session.start", `SSH → ${host.name}`, {
+    hostId: host.id,
+    hostName: host.name,
+    meta: { protocol: "ssh" },
+  });
   const conn = new Client();
   const clearWsKeepAlive = attachWsKeepAlive(ws, `ssh/${host.name}`);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -42,6 +48,13 @@ export function handleSshConnection(ws: WebSocket, request: IncomingMessage): vo
     if (cleaned) return;
     cleaned = true;
     clearWsKeepAlive();
+    const session = getSession(sessionId);
+    if (session && !session.endedAt) {
+      logAudit(user.username, "session.end", `SSH fermé — ${host.name}`, {
+        hostId: host.id,
+        hostName: host.name,
+      });
+    }
     endSession(sessionId);
     try {
       conn.end();

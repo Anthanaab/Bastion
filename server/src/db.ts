@@ -7,6 +7,8 @@ import {
   encryptNullable,
   isEncrypted,
 } from "./crypto";
+import { bindAuditStore } from "./audit";
+import type { AuditEntry } from "./audit";
 
 export type Protocol = "ssh" | "rdp" | "vnc";
 
@@ -39,8 +41,26 @@ export interface SessionRow {
   id: string;
   hostId: string;
   protocol: Protocol;
+  username: string | null;
   startedAt: string;
   endedAt: string | null;
+}
+
+export interface SessionView {
+  id: string;
+  hostId: string;
+  hostName: string;
+  protocol: Protocol;
+  username: string | null;
+  startedAt: string;
+  endedAt: string | null;
+  durationSec: number | null;
+}
+
+export interface HostExportBundle {
+  bastionExport: 1;
+  exportedAt: string;
+  hosts: Omit<Host, "createdAt" | "updatedAt">[];
 }
 
 interface StoredHost extends Omit<Host, "password" | "privateKey"> {
@@ -52,10 +72,13 @@ interface Store {
   users: User[];
   hosts: StoredHost[];
   sessions: SessionRow[];
+  auditLog?: AuditEntry[];
 }
 
+const MAX_SESSION_ROWS = 2000;
+
 let storePath = "";
-let store: Store = { users: [], hosts: [], sessions: [] };
+let store: Store = { users: [], hosts: [], sessions: [], auditLog: [] };
 const liveSessionIds = new Set<string>();
 
 function decryptHost(host: StoredHost): Host {
@@ -110,6 +133,17 @@ function load(): void {
   if (fs.existsSync(storePath)) {
     store = JSON.parse(fs.readFileSync(storePath, "utf8")) as Store;
   }
+  if (!store.auditLog) store.auditLog = [];
+  for (const session of store.sessions) {
+    if (session.username === undefined) session.username = null;
+  }
+}
+
+function trimSessions(): void {
+  if (store.sessions.length <= MAX_SESSION_ROWS) return;
+  store.sessions = [...store.sessions]
+    .sort((a, b) => b.startedAt.localeCompare(a.startedAt))
+    .slice(0, MAX_SESSION_ROWS);
 }
 
 export function initDatabase(dbPath: string): void {
@@ -117,6 +151,7 @@ export function initDatabase(dbPath: string): void {
     ? dbPath
     : path.join(dbPath.replace(/\.db$/, "") + ".json");
   load();
+  bindAuditStore(store.auditLog!, persist);
   closeOrphanedSessions();
   migratePlaintextSecrets();
 }
@@ -223,18 +258,118 @@ export function deleteHost(id: string): boolean {
   return false;
 }
 
-export function createSession(hostId: string, protocol: Protocol): string {
+export function createSession(
+  hostId: string,
+  protocol: Protocol,
+  username: string | null = null
+): string {
   const id = uuid();
   store.sessions.push({
     id,
     hostId,
     protocol,
+    username,
     startedAt: new Date().toISOString(),
     endedAt: null,
   });
   liveSessionIds.add(id);
+  trimSessions();
   persist();
   return id;
+}
+
+export function getSession(id: string): SessionRow | undefined {
+  return store.sessions.find((s) => s.id === id);
+}
+
+export function listSessions(limit = 50): SessionView[] {
+  const hostNames = new Map(store.hosts.map((h) => [h.id, h.name]));
+
+  return [...store.sessions]
+    .sort((a, b) => b.startedAt.localeCompare(a.startedAt))
+    .slice(0, limit)
+    .map((session) => {
+      const ended = session.endedAt
+        ? new Date(session.endedAt).getTime()
+        : null;
+      const started = new Date(session.startedAt).getTime();
+      return {
+        id: session.id,
+        hostId: session.hostId,
+        hostName: hostNames.get(session.hostId) ?? "?",
+        protocol: session.protocol,
+        username: session.username,
+        startedAt: session.startedAt,
+        endedAt: session.endedAt,
+        durationSec:
+          ended !== null ? Math.max(0, Math.round((ended - started) / 1000)) : null,
+      };
+    });
+}
+
+export function exportHostsBundle(): HostExportBundle {
+  return {
+    bastionExport: 1,
+    exportedAt: new Date().toISOString(),
+    hosts: listHosts().map(
+      ({ createdAt: _c, updatedAt: _u, ...host }) => host
+    ),
+  };
+}
+
+export type ImportHostInput = Omit<Host, "id" | "createdAt" | "updatedAt"> & {
+  id?: string;
+};
+
+export function importHosts(
+  hosts: ImportHostInput[],
+  mode: "merge" | "replace"
+): { created: number; updated: number } {
+  let created = 0;
+  let updated = 0;
+
+  if (mode === "replace") {
+    store.hosts = [];
+    store.sessions = [];
+    liveSessionIds.clear();
+  }
+
+  for (const row of hosts) {
+    const byId = row.id
+      ? store.hosts.find((h) => h.id === row.id)
+      : undefined;
+    const byKey = store.hosts.find(
+      (h) => h.name === row.name && h.hostname === row.hostname
+    );
+    const existing = byId ?? byKey;
+
+    if (existing && mode === "merge") {
+      updateHost(existing.id, {
+        name: row.name,
+        hostname: row.hostname,
+        port: row.port,
+        protocol: row.protocol,
+        username: row.username,
+        password: row.password,
+        privateKey: row.privateKey,
+        macAddress: row.macAddress,
+        wolBroadcast: row.wolBroadcast,
+        keyboardLayout: row.keyboardLayout,
+        color: row.color,
+        tags: row.tags,
+      });
+      updated += 1;
+    } else {
+      const { id: _drop, ...rest } = row;
+      createHost({
+        id: uuid(),
+        ...rest,
+      });
+      created += 1;
+    }
+  }
+
+  return { created, updated };
 }
 
 export function endSession(id: string): void {

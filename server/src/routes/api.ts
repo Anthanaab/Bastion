@@ -5,15 +5,19 @@ import { v4 as uuid } from "uuid";
 import {
   createHost,
   deleteHost,
+  exportHostsBundle,
   findUserByUsername,
   getHost,
   getStats,
+  importHosts,
   listHosts,
+  listSessions,
   updateHost,
   updateUserPassword,
   type Protocol,
   type Host,
 } from "../db";
+import { logAudit, listAudit } from "../audit";
 import { authMiddleware, signToken } from "../auth";
 import { probeTcp } from "../probe";
 import { isValidMac, wakeHost } from "../wol";
@@ -75,6 +79,20 @@ const hostSchema = z.object({
   tags: z.string().max(500).default(""),
 });
 
+const importHostSchema = hostSchema.extend({
+  id: z.string().uuid().optional(),
+});
+
+const importSchema = z.object({
+  mode: z.enum(["merge", "replace"]),
+  hosts: z.array(importHostSchema).min(1).max(200),
+});
+
+const exportBundleSchema = z.object({
+  bastionExport: z.literal(1).optional(),
+  hosts: z.array(importHostSchema).min(1).max(200),
+});
+
 router.post("/login", loginRateLimit, (req, res) => {
   const parsed = loginSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -89,6 +107,7 @@ router.post("/login", loginRateLimit, (req, res) => {
   }
 
   const token = signToken({ userId: user.id, username: user.username });
+  logAudit(user.username, "login", "Connexion réussie");
   res.cookie("bastion_token", token, {
     httpOnly: true,
     sameSite: "lax",
@@ -123,7 +142,7 @@ router.post("/me/password", authMiddleware, (req, res) => {
   }
 
   updateUserPassword(user.id, parsed.data.newPassword);
-  console.log(`[Auth] Mot de passe changé pour ${user.username}`);
+  logAudit(req.user!.username, "password.change", "Mot de passe admin modifié");
   res.json({ ok: true });
 });
 
@@ -153,6 +172,78 @@ router.get("/hosts/status", authMiddleware, async (_req, res) => {
     })
   );
   res.json(Object.fromEntries(entries));
+});
+
+router.get("/hosts/export", authMiddleware, (req, res) => {
+  const bundle = exportHostsBundle();
+  logAudit(req.user!.username, "host.export", `${bundle.hosts.length} hôte(s) exporté(s)`);
+  res.json(bundle);
+});
+
+router.post("/hosts/import", authMiddleware, (req, res) => {
+  const body = req.body as { mode?: string; hosts?: unknown };
+  let mode: "merge" | "replace" = "merge";
+  let hostsInput: unknown[] | undefined;
+
+  const direct = importSchema.safeParse(req.body);
+  if (direct.success) {
+    mode = direct.data.mode;
+    hostsInput = direct.data.hosts;
+  } else {
+    const bundle = exportBundleSchema.safeParse(req.body);
+    if (!bundle.success) {
+      res.status(400).json({ error: "Format d'import invalide" });
+      return;
+    }
+    mode =
+      body.mode === "replace" || body.mode === "merge" ? body.mode : "merge";
+    hostsInput = bundle.data.hosts;
+  }
+
+  const rows = hostsInput as z.infer<typeof importHostSchema>[];
+  const result = importHosts(
+    rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      hostname: row.hostname,
+      port: row.port,
+      protocol: row.protocol,
+      username: row.username,
+      password: row.password ?? null,
+      privateKey: row.privateKey ?? null,
+      macAddress: row.macAddress ?? null,
+      wolBroadcast: row.wolBroadcast ?? null,
+      keyboardLayout: row.keyboardLayout ?? null,
+      color: row.color,
+      tags: row.tags,
+    })),
+    mode
+  );
+
+  logAudit(
+    req.user!.username,
+    "host.import",
+    `Import ${mode} : ${result.created} créé(s), ${result.updated} mis à jour`,
+    { meta: { mode } }
+  );
+
+  res.json({ ok: true, ...result });
+});
+
+router.get("/sessions", authMiddleware, (req, res) => {
+  const limit = Math.min(
+    200,
+    Math.max(1, parseInt(String(req.query.limit ?? "50"), 10) || 50)
+  );
+  res.json(listSessions(limit));
+});
+
+router.get("/audit", authMiddleware, (req, res) => {
+  const limit = Math.min(
+    500,
+    Math.max(1, parseInt(String(req.query.limit ?? "100"), 10) || 100)
+  );
+  res.json(listAudit(limit));
 });
 
 router.get("/hosts/:id", authMiddleware, (req, res) => {
@@ -185,6 +276,11 @@ router.post("/hosts", authMiddleware, (req, res) => {
     wolBroadcast: parsed.data.wolBroadcast ?? null,
   });
 
+  logAudit(req.user!.username, "host.create", `Hôte créé : ${host.name}`, {
+    hostId: host.id,
+    hostName: host.name,
+  });
+
   res.status(201).json(maskHostSecrets(host));
 });
 
@@ -214,14 +310,25 @@ router.put("/hosts/:id", authMiddleware, (req, res) => {
     res.status(404).json({ error: "Hôte introuvable" });
     return;
   }
+  logAudit(req.user!.username, "host.update", `Hôte modifié : ${host.name}`, {
+    hostId: host.id,
+    hostName: host.name,
+  });
   res.json(maskHostSecrets(host));
 });
 
 router.delete("/hosts/:id", authMiddleware, (req, res) => {
+  const existing = getHost(req.params.id);
   const ok = deleteHost(req.params.id);
   if (!ok) {
     res.status(404).json({ error: "Hôte introuvable" });
     return;
+  }
+  if (existing) {
+    logAudit(req.user!.username, "host.delete", `Hôte supprimé : ${existing.name}`, {
+      hostId: existing.id,
+      hostName: existing.name,
+    });
   }
   res.json({ ok: true });
 });
@@ -242,9 +349,10 @@ router.post("/hosts/:id/wake", authMiddleware, async (req, res) => {
       hostname: host.hostname,
       wolBroadcast: host.wolBroadcast,
     });
-    console.log(
-      `[WOL] ${host.name} (${host.macAddress}) — ${result.sentTo.join("; ")} (user: ${req.user!.username})`
-    );
+    logAudit(req.user!.username, "wol", `Wake-on-LAN : ${host.name}`, {
+      hostId: host.id,
+      hostName: host.name,
+    });
     res.json({ ok: true, sentTo: result.sentTo, hint: result.hint });
   } catch (err) {
     const message =
@@ -262,7 +370,7 @@ router.post("/sessions/ping", authMiddleware, (req, res) => {
   );
   res.json({
     ok: true,
-    version: "1.4.1",
+    version: "1.5.0",
     host: host
       ? { id: host.id, name: host.name, protocol: host.protocol }
       : null,

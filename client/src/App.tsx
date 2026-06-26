@@ -4,6 +4,7 @@ import LoginPage from "./pages/LoginPage";
 import DashboardPage from "./pages/DashboardPage";
 import SessionPage from "./pages/SessionPage";
 import SettingsPage from "./pages/SettingsPage";
+import ActivityPage from "./pages/ActivityPage";
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -27,6 +28,14 @@ export default function App() {
         element={
           <ProtectedRoute>
             <DashboardPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/activity"
+        element={
+          <ProtectedRoute>
+            <ActivityPage />
           </ProtectedRoute>
         }
       />

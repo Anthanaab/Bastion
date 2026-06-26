@@ -98,6 +98,24 @@ export const api = {
       `/hosts/${hostId}/wake`,
       { method: "POST" }
     ),
+
+  sessions: (limit = 50) =>
+    request<import("./types").SessionRecord[]>(`/sessions?limit=${limit}`),
+
+  audit: (limit = 100) =>
+    request<import("./types").AuditRecord[]>(`/audit?limit=${limit}`),
+
+  exportHosts: () =>
+    request<import("./types").HostExportBundle>("/hosts/export"),
+
+  importHosts: (
+    mode: "merge" | "replace",
+    hosts: import("./types").HostExportBundle["hosts"]
+  ) =>
+    request<{ ok: boolean; created: number; updated: number }>("/hosts/import", {
+      method: "POST",
+      body: JSON.stringify({ mode, hosts }),
+    }),
 };
 
 export function wsBaseUrl(path: string): string {
