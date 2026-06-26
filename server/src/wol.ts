@@ -88,7 +88,7 @@ function sendMagicPacketOnce(
 async function sendMagicPacketBurst(
   mac: Buffer,
   address: string
-): Promise<void> {
+): Promise<string> {
   for (let repeat = 0; repeat < WOL_REPEATS; repeat++) {
     for (const port of WOL_PORTS) {
       await sendMagicPacketOnce(mac, address, port);
@@ -97,6 +97,7 @@ async function sendMagicPacketBurst(
       await sleep(WOL_REPEAT_DELAY_MS);
     }
   }
+  return `${address} (×${WOL_REPEATS}, ports ${WOL_PORTS.join("/")})`;
 }
 
 export interface WakeHostOptions {
@@ -104,11 +105,9 @@ export interface WakeHostOptions {
   wolBroadcast?: string | null;
 }
 
-export async function wakeHost(
-  macAddress: string,
-  options: WakeHostOptions = {}
-): Promise<{ sentTo: string[]; hint?: string }> {
-  const mac = normalizeMac(macAddress);
+async function collectTargets(
+  options: WakeHostOptions
+): Promise<string[]> {
   const targets = new Set<string>();
 
   const envBc = process.env.BASTION_WOL_BROADCAST?.trim();
@@ -126,11 +125,52 @@ export async function wakeHost(
     }
   }
 
+  return [...targets];
+}
+
+async function wakeViaRelay(
+  macAddress: string,
+  targets: string[]
+): Promise<{ sentTo: string[] }> {
+  const relayUrl = process.env.WOL_RELAY_URL?.trim();
+  if (!relayUrl) {
+    throw new Error("WOL_RELAY_URL non configuré");
+  }
+
+  const base = relayUrl.replace(/\/$/, "");
+  const response = await fetch(`${base}/wake`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ mac: macAddress, targets }),
+  });
+
+  const payload = (await response.json().catch(() => ({}))) as {
+    error?: string;
+    sentTo?: string[];
+  };
+
+  if (!response.ok) {
+    throw new Error(payload.error ?? `Relais WoL indisponible (${response.status})`);
+  }
+
+  if (!payload.sentTo?.length) {
+    throw new Error("Relais WoL : réponse invalide");
+  }
+
+  return { sentTo: payload.sentTo };
+}
+
+async function wakeDirect(
+  macAddress: string,
+  targets: string[]
+): Promise<{ sentTo: string[]; hint?: string }> {
+  const mac = normalizeMac(macAddress);
   const sentTo: string[] = [];
+
   for (const address of targets) {
     try {
-      await sendMagicPacketBurst(mac, address);
-      sentTo.push(`${address} (×${WOL_REPEATS}, ports ${WOL_PORTS.join("/")})`);
+      const label = await sendMagicPacketBurst(mac, address);
+      sentTo.push(label);
       console.log(`[WOL] Paquet envoyé → ${address}`);
     } catch (err) {
       console.warn(`[WOL] Échec vers ${address}:`, err);
@@ -148,7 +188,22 @@ export async function wakeHost(
   return {
     sentTo,
     hint: dockerBridge
-      ? "Docker en mode bridge : si le PC ne démarre pas, utilisez docker-compose.wol.yml (réseau host) — voir README."
+      ? "WoL depuis Docker bridge : activez le service wol-relay (défaut du docker-compose) ou définissez WOL_RELAY_URL."
       : undefined,
   };
+}
+
+export async function wakeHost(
+  macAddress: string,
+  options: WakeHostOptions = {}
+): Promise<{ sentTo: string[]; hint?: string }> {
+  const targets = await collectTargets(options);
+
+  if (process.env.WOL_RELAY_URL?.trim()) {
+    const result = await wakeViaRelay(macAddress, targets);
+    console.log(`[WOL] Via relais → ${result.sentTo.join("; ")}`);
+    return result;
+  }
+
+  return wakeDirect(macAddress, targets);
 }

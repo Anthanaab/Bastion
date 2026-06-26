@@ -57,7 +57,7 @@ app.get("/api/health", (_req, res) => {
   res.json({
     status: "ok",
     name: "Bastion",
-    version: "1.3.3",
+    version: "1.3.4",
     guacd: { host: GUACD_HOST, port: GUACD_PORT },
   });
 });
@@ -117,7 +117,7 @@ server.listen(PORT, "0.0.0.0", () => {
   ║   Passerelle d'accès distant         ║
   ╠══════════════════════════════════════╣
   ║  http://localhost:${String(PORT).padEnd(19)}║
-  ║  Version : 1.3.3${" ".repeat(22)}║
+  ║  Version : 1.3.4${" ".repeat(22)}║
   ║  Admin : ${ADMIN_USER.padEnd(27)}║
   ╚══════════════════════════════════════╝
   `);

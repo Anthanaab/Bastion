@@ -7,6 +7,8 @@ services:
       - "${BASTION_PORT:-3000}:3000"
     volumes:
       - bastion-data:/app/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       PORT: "3000"
       JWT_SECRET: ${JWT_SECRET:-changez-moi-en-production-avec-une-longue-chaine-aleatoire}
@@ -19,11 +21,20 @@ services:
       BASTION_RDP_SECURITY: "${BASTION_RDP_SECURITY:-nla|tls|rdp|any}"
       BASTION_RDP_DISABLE_GFX: "${BASTION_RDP_DISABLE_GFX:-true}"
       BASTION_WOL_BROADCAST: "${BASTION_WOL_BROADCAST:-}"
+      WOL_RELAY_URL: "${WOL_RELAY_URL:-http://host.docker.internal:9877}"
     depends_on:
       guacd:
         condition: service_started
+      wol-relay:
+        condition: service_started
     networks:
       - bastion-net
+
+  wol-relay:
+    build: ./wol-relay
+    container_name: bastion-wol-relay
+    restart: unless-stopped
+    network_mode: host
 
   guacd:
     image: guacamole/guacd:1.6.0
