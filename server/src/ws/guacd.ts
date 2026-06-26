@@ -4,6 +4,9 @@ import { getHost, createSession, endSession } from "../db";
 import { wsAuthFromRequest } from "../auth";
 import { GuacdClient, type ConnectionSettings } from "./guacd-client";
 import { toInstruction, splitClientMessage } from "./guacamole-parser";
+import { attachWsKeepAlive } from "./ws-keepalive";
+
+const MAX_CLIENT_BUFFER = 256 * 1024;
 
 const DEFAULT_RDP_SECURITY = "nla|tls|rdp|any";
 
@@ -85,6 +88,7 @@ function buildSettings(
       settings["disable-gfx"] = "true";
     }
     settings["server-layout"] = rdpKeyboardLayout(host);
+    settings["server-alive-interval"] = "30";
   } else {
     settings["color-depth"] = "24";
     settings.cursor = "remote";
@@ -130,6 +134,7 @@ export function handleGuacdConnection(
   const protocol = host.protocol;
 
   const sessionId = createSession(hostId, protocol);
+  const clearWsKeepAlive = attachWsKeepAlive(ws, `guacd/${host.name}`);
 
   console.log(
     `[Guacd] Session ${protocol} → ${host.hostname}:${host.port} (${host.name}) ${viewport.width}x${viewport.height}`
@@ -240,6 +245,14 @@ export function handleGuacdConnection(
     const message =
       typeof data === "string" ? data : (data as Buffer).toString("utf8");
     clientToGuacdBuffer += message;
+
+    if (clientToGuacdBuffer.length > MAX_CLIENT_BUFFER) {
+      console.warn(
+        `[Guacd] Buffer client tronqué (${clientToGuacdBuffer.length} octets)`
+      );
+      clientToGuacdBuffer = clientToGuacdBuffer.slice(-MAX_CLIENT_BUFFER);
+    }
+
     const { tunnelOnly, forGuacd, remainder } =
       splitClientMessage(clientToGuacdBuffer);
     clientToGuacdBuffer = remainder;
@@ -254,6 +267,7 @@ export function handleGuacdConnection(
   const cleanup = () => {
     if (cleaned) return;
     cleaned = true;
+    clearWsKeepAlive();
     clearTimeout(handshakeTimeout);
     endSession(sessionId);
     guacdClient?.close();

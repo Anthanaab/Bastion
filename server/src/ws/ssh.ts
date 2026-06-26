@@ -3,6 +3,7 @@ import { Client } from "ssh2";
 import { WebSocket } from "ws";
 import { getHost, createSession, endSession } from "../db";
 import { wsAuthFromRequest } from "../auth";
+import { attachWsKeepAlive } from "./ws-keepalive";
 
 export function handleSshConnection(ws: WebSocket, request: IncomingMessage): void {
   const url = request.url ?? "";
@@ -31,6 +32,7 @@ export function handleSshConnection(ws: WebSocket, request: IncomingMessage): vo
 
   const sessionId = createSession(hostId, "ssh");
   const conn = new Client();
+  const clearWsKeepAlive = attachWsKeepAlive(ws, `ssh/${host.name}`);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let stream: any = null;
   let cleaned = false;
@@ -38,6 +40,7 @@ export function handleSshConnection(ws: WebSocket, request: IncomingMessage): vo
   const cleanup = () => {
     if (cleaned) return;
     cleaned = true;
+    clearWsKeepAlive();
     endSession(sessionId);
     try {
       conn.end();

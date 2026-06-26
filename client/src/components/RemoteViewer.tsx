@@ -101,8 +101,8 @@ export default function RemoteViewer({
 
       const { width, height } = viewportSize(containerRef.current);
       const tunnel = new Guacamole.WebSocketTunnel(wsBaseUrl("/ws/guacd"));
-      tunnel.receiveTimeout = 90000;
-      tunnel.unstableThreshold = 10000;
+      tunnel.receiveTimeout = 300_000;
+      tunnel.unstableThreshold = 60_000;
 
       const connectData = wsConnectData({
         hostId,
@@ -198,12 +198,17 @@ export default function RemoteViewer({
         mouse.onmouseup =
         mouse.onmousemove =
           (mouseState: Guacamole.Mouse.State) => {
+            element.focus({ preventScroll: true });
             client.sendMouseState(mouseState, true);
           };
 
-      const keyboard = new Guacamole.Keyboard(document);
+      const keyboard = new Guacamole.Keyboard(element);
       keyboard.onkeydown = (keysym: number) => client.sendKeyEvent(1, keysym);
       keyboard.onkeyup = (keysym: number) => client.sendKeyEvent(0, keysym);
+
+      element.addEventListener("mousedown", () => {
+        element.focus({ preventScroll: true });
+      });
 
       tunnel.onstatechange = (state: number) => {
         if (state === Guacamole.Tunnel.State.CONNECTING) {
@@ -211,7 +216,23 @@ export default function RemoteViewer({
         } else if (state === Guacamole.Tunnel.State.OPEN) {
           guacdReady = true;
           setStatus("Ouverture du bureau distant…");
+        } else if (state === Guacamole.Tunnel.State.UNSTABLE) {
+          setStatus("Connexion instable — reprise…");
+        } else if (state === Guacamole.Tunnel.State.CLOSED && clientConnected) {
+          clientConnected = false;
+          clearControl();
+          setError("Session fermée — reconnectez-vous");
         }
+      };
+
+      tunnel.onerror = (status: Guacamole.Status) => {
+        clientConnected = false;
+        clearControl();
+        if (status.code === Guacamole.Status.Code.UPSTREAM_TIMEOUT) {
+          setError("Session expirée après inactivité — reconnectez-vous");
+          return;
+        }
+        setError(status.message || "Connexion WebSocket interrompue");
       };
 
       client.onstatechange = (state: number) => {
