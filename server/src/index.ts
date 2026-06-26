@@ -74,7 +74,7 @@ app.get("/api/health", (_req, res) => {
   res.json({
     status: "ok",
     name: "Bastion",
-    version: "1.4.0",
+    version: "1.4.1",
   });
 });
 
@@ -133,7 +133,7 @@ server.listen(PORT, "0.0.0.0", () => {
   ║   Passerelle d'accès distant         ║
   ╠══════════════════════════════════════╣
   ║  http://localhost:${String(PORT).padEnd(19)}║
-  ║  Version : 1.4.0${" ".repeat(22)}║
+  ║  Version : 1.4.1${" ".repeat(22)}║
   ║  Admin : ${ADMIN_USER.padEnd(27)}║
   ╚══════════════════════════════════════╝
   `);

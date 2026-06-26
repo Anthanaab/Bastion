@@ -106,7 +106,11 @@ export function wsBaseUrl(path: string): string {
 }
 
 export function wsConnectData(params: Record<string, string>): string {
-  return new URLSearchParams(params).toString();
+  const qs = new URLSearchParams(params);
+  // WebSocket ne supporte pas Authorization — cookie ou ?token= requis (Guacamole).
+  const token = getToken();
+  if (token) qs.set("token", token);
+  return qs.toString();
 }
 
 export function wsUrl(path: string, params: Record<string, string>): string {
