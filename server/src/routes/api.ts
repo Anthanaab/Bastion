@@ -17,6 +17,15 @@ import {
 import { authMiddleware, signToken } from "../auth";
 import { probeTcp } from "../probe";
 import { isValidMac, wakeHost } from "../wol";
+import { loginRateLimit } from "../middleware/rate-limit";
+
+function maskHostSecrets(host: Host): Host {
+  return {
+    ...host,
+    password: host.password ? "••••••••" : null,
+    privateKey: host.privateKey ? "[clé privée]" : null,
+  };
+}
 
 const router = Router();
 
@@ -66,7 +75,7 @@ const hostSchema = z.object({
   tags: z.string().max(500).default(""),
 });
 
-router.post("/login", (req, res) => {
+router.post("/login", loginRateLimit, (req, res) => {
   const parsed = loginSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "Identifiants invalides" });
@@ -176,7 +185,7 @@ router.post("/hosts", authMiddleware, (req, res) => {
     wolBroadcast: parsed.data.wolBroadcast ?? null,
   });
 
-  res.status(201).json(host);
+  res.status(201).json(maskHostSecrets(host));
 });
 
 router.put("/hosts/:id", authMiddleware, (req, res) => {
@@ -201,7 +210,11 @@ router.put("/hosts/:id", authMiddleware, (req, res) => {
   }
 
   const host = updateHost(req.params.id, data);
-  res.json(host);
+  if (!host) {
+    res.status(404).json({ error: "Hôte introuvable" });
+    return;
+  }
+  res.json(maskHostSecrets(host));
 });
 
 router.delete("/hosts/:id", authMiddleware, (req, res) => {
@@ -249,7 +262,7 @@ router.post("/sessions/ping", authMiddleware, (req, res) => {
   );
   res.json({
     ok: true,
-    version: "1.3.6",
+    version: "1.4.0",
     host: host
       ? { id: host.id, name: host.name, protocol: host.protocol }
       : null,

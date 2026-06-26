@@ -4,6 +4,7 @@ import { WebSocket } from "ws";
 import { getHost, createSession, endSession } from "../db";
 import { wsAuthFromRequest } from "../auth";
 import { attachWsKeepAlive } from "./ws-keepalive";
+import { verifySshHostKey } from "../ssh-known-hosts";
 
 export function handleSshConnection(ws: WebSocket, request: IncomingMessage): void {
   const url = request.url ?? "";
@@ -118,6 +119,22 @@ export function handleSshConnection(ws: WebSocket, request: IncomingMessage): vo
     port: host.port,
     username: host.username,
     readyTimeout: 15000,
+    hostVerifier: (
+      key: Buffer,
+      callback: (verified: boolean) => void
+    ) => {
+      const ok = verifySshHostKey(host.hostname, host.port, key);
+      if (!ok) {
+        ws.send(
+          JSON.stringify({
+            type: "error",
+            message:
+              "Clé SSH du serveur modifiée ou inconnue — connexion refusée",
+          })
+        );
+      }
+      callback(ok);
+    },
   };
 
   if (host.privateKey) {

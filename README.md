@@ -48,6 +48,10 @@ npm run dev
 - Changez `JWT_SECRET`, `BASTION_ENCRYPTION_KEY` et le mot de passe admin
 - Passez par un VPN (Tailscale, WireGuard) ou un reverse proxy HTTPS
 - Limitez l'accès réseau au conteneur
+- Relais WoL protégé par `WOL_RELAY_SECRET` (défaut : même valeur que `JWT_SECRET`)
+- Clés SSH vérifiées au premier contact (TOFU) — fichier `ssh-known-hosts.json`
+- Rate limit sur `/login` (10 tentatives / 15 min par IP)
+- JWT WebSocket via cookie uniquement (plus dans l'URL)
 
 ### Wake-on-LAN
 
@@ -77,6 +81,10 @@ Navigateur ──► Bastion (Node.js) ──► SSH direct
 | `BASTION_ENCRYPTION_KEY` | Clé AES-256 pour mots de passe hôtes (64 hex) | dérivée de `JWT_SECRET` |
 | `BASTION_WOL_BROADCAST` | Adresse broadcast pour Wake-on-LAN | auto (255.255.255.255 + sous-réseau) |
 | `WOL_RELAY_URL` | URL du relais WoL (Docker) | `http://host.docker.internal:9877` |
+| `WOL_RELAY_SECRET` | Secret relais WoL | `JWT_SECRET` |
+| `BASTION_CORS_ORIGIN` | Origines CORS autorisées (virgules) | toutes |
+| `BASTION_SSH_STRICT_HOST_KEY` | Vérification clé SSH (TOFU) | `true` |
+| `BASTION_RDP_IGNORE_CERT` | Ignorer certificats RDP | `true` |
 | `BASTION_ADMIN_USER` | Utilisateur admin initial | `admin` |
 | `BASTION_ADMIN_PASSWORD` | Mot de passe admin initial | `admin` |
 | `GUACD_HOST` | Hôte guacd | `guacd` |

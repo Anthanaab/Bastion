@@ -6,6 +6,23 @@ const WOL_REPEATS = 3;
 const WOL_REPEAT_DELAY_MS = 150;
 const PORT = parseInt(process.env.WOL_RELAY_PORT ?? "9877", 10);
 const BIND = process.env.WOL_RELAY_BIND ?? "127.0.0.1";
+const SECRET =
+  process.env.WOL_RELAY_SECRET?.trim() ||
+  process.env.JWT_SECRET?.trim() ||
+  "";
+
+if (BIND === "0.0.0.0" && !SECRET) {
+  console.error(
+    "[wol-relay] WOL_RELAY_SECRET est obligatoire avec WOL_RELAY_BIND=0.0.0.0"
+  );
+  process.exit(1);
+}
+
+function authorized(req) {
+  if (!SECRET) return true;
+  const header = req.headers.authorization ?? "";
+  return header === `Bearer ${SECRET}`;
+}
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -119,6 +136,12 @@ const server = http.createServer(async (req, res) => {
     if (req.method !== "POST" || req.url !== "/wake") {
       res.writeHead(404);
       res.end();
+      return;
+    }
+
+    if (!authorized(req)) {
+      res.writeHead(401, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Non autorisé" }));
       return;
     }
 

@@ -106,10 +106,7 @@ export function wsBaseUrl(path: string): string {
 }
 
 export function wsConnectData(params: Record<string, string>): string {
-  const qs = new URLSearchParams(params);
-  const token = getToken();
-  if (token) qs.set("token", token);
-  return qs.toString();
+  return new URLSearchParams(params).toString();
 }
 
 export function wsUrl(path: string, params: Record<string, string>): string {

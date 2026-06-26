@@ -42,6 +42,11 @@ function rdpKeyboardLayout(host: NonNullable<ReturnType<typeof getHost>>): strin
   );
 }
 
+function rdpIgnoreCert(): boolean {
+  const raw = process.env.BASTION_RDP_IGNORE_CERT ?? "true";
+  return raw !== "false" && raw !== "0";
+}
+
 function isRdpSecurityError(data: string): boolean {
   return /wrong security type|security negotiation failed/i.test(data);
 }
@@ -79,7 +84,9 @@ function buildSettings(
 
   if (protocol === "rdp") {
     settings.security = securityMode ?? rdpSecurityModes()[0] ?? "nla";
-    settings["ignore-cert"] = "true";
+    if (rdpIgnoreCert()) {
+      settings["ignore-cert"] = "true";
+    }
     settings["color-depth"] = "24";
     settings["enable-wallpaper"] = "false";
     settings["enable-font-smoothing"] = "true";

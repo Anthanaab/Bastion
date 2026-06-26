@@ -130,6 +130,23 @@ async function collectTargets(
 
 const RELAY_TIMEOUT_MS = 5_000;
 
+function wolRelaySecret(): string | undefined {
+  return (
+    process.env.WOL_RELAY_SECRET?.trim() ||
+    process.env.JWT_SECRET?.trim() ||
+    undefined
+  );
+}
+
+function relayAuthHeaders(): Record<string, string> {
+  const secret = wolRelaySecret();
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (secret) headers.Authorization = `Bearer ${secret}`;
+  return headers;
+}
+
 function relayUrls(): string[] {
   const urls = new Set<string>();
   const env = process.env.WOL_RELAY_URL?.trim();
@@ -149,7 +166,7 @@ async function wakeViaRelay(
     try {
       const response = await fetch(`${base}/wake`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: relayAuthHeaders(),
         body: JSON.stringify({ mac: macAddress, targets }),
         signal: AbortSignal.timeout(RELAY_TIMEOUT_MS),
       });

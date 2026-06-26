@@ -10,6 +10,7 @@ import {
   initDatabase,
   ensureAdminUser,
 } from "./db";
+import { initSshKnownHosts } from "./ssh-known-hosts";
 import apiRouter from "./routes/api";
 import { handleSshConnection } from "./ws/ssh";
 import { handleGuacdConnection } from "./ws/guacd";
@@ -37,10 +38,26 @@ const ADMIN_USER = process.env.BASTION_ADMIN_USER ?? "admin";
 const ADMIN_PASSWORD = process.env.BASTION_ADMIN_PASSWORD ?? "admin";
 
 initDatabase(DATABASE_PATH);
+initSshKnownHosts(DATABASE_PATH);
 ensureAdminUser(ADMIN_USER, ADMIN_PASSWORD);
 
+const corsOrigins = process.env.BASTION_CORS_ORIGIN?.trim();
 const app = express();
-app.use(cors({ origin: true, credentials: true }));
+app.set("trust proxy", 1);
+app.use(
+  cors({
+    origin: corsOrigins
+      ? corsOrigins.split(",").map((o) => o.trim())
+      : true,
+    credentials: true,
+  })
+);
+app.use((_req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "SAMEORIGIN");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  next();
+});
 app.use(express.json({ limit: "1mb" }));
 app.use(cookieParser());
 
@@ -57,8 +74,7 @@ app.get("/api/health", (_req, res) => {
   res.json({
     status: "ok",
     name: "Bastion",
-    version: "1.3.6",
-    guacd: { host: GUACD_HOST, port: GUACD_PORT },
+    version: "1.4.0",
   });
 });
 
@@ -117,7 +133,7 @@ server.listen(PORT, "0.0.0.0", () => {
   ║   Passerelle d'accès distant         ║
   ╠══════════════════════════════════════╣
   ║  http://localhost:${String(PORT).padEnd(19)}║
-  ║  Version : 1.3.6${" ".repeat(22)}║
+  ║  Version : 1.4.0${" ".repeat(22)}║
   ║  Admin : ${ADMIN_USER.padEnd(27)}║
   ╚══════════════════════════════════════╝
   `);

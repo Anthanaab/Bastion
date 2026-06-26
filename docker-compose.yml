@@ -22,6 +22,10 @@ services:
       BASTION_RDP_DISABLE_GFX: "${BASTION_RDP_DISABLE_GFX:-true}"
       BASTION_WOL_BROADCAST: "${BASTION_WOL_BROADCAST:-}"
       WOL_RELAY_URL: "${WOL_RELAY_URL:-http://host.docker.internal:9877}"
+      WOL_RELAY_SECRET: "${WOL_RELAY_SECRET:-}"
+      BASTION_CORS_ORIGIN: "${BASTION_CORS_ORIGIN:-}"
+      BASTION_SSH_STRICT_HOST_KEY: "${BASTION_SSH_STRICT_HOST_KEY:-true}"
+      BASTION_RDP_IGNORE_CERT: "${BASTION_RDP_IGNORE_CERT:-true}"
     depends_on:
       guacd:
         condition: service_started
@@ -38,6 +42,8 @@ services:
     environment:
       WOL_RELAY_BIND: "0.0.0.0"
       WOL_RELAY_PORT: "9877"
+      WOL_RELAY_SECRET: "${WOL_RELAY_SECRET:-}"
+      JWT_SECRET: ${JWT_SECRET:-changez-moi-en-production-avec-une-longue-chaine-aleatoire}
 
   guacd:
     image: guacamole/guacd:1.6.0
