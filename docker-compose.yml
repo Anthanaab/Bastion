@@ -35,6 +35,9 @@ services:
     container_name: bastion-wol-relay
     restart: unless-stopped
     network_mode: host
+    environment:
+      WOL_RELAY_BIND: "0.0.0.0"
+      WOL_RELAY_PORT: "9877"
 
   guacd:
     image: guacamole/guacd:1.6.0

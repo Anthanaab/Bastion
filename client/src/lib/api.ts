@@ -23,11 +23,16 @@ async function request<T>(
   };
   if (token) headers.Authorization = `Bearer ${token}`;
 
-  const res = await fetch(`/api${path}`, {
-    ...options,
-    headers,
-    credentials: "include",
-  });
+  let res: Response;
+  try {
+    res = await fetch(`/api${path}`, {
+      ...options,
+      headers,
+      credentials: "include",
+    });
+  } catch {
+    throw new Error("Serveur injoignable — vérifiez la connexion réseau");
+  }
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: res.statusText }));

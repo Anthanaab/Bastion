@@ -4,6 +4,6 @@ WORKDIR /app
 COPY index.js .
 
 ENV WOL_RELAY_PORT=9877
-ENV WOL_RELAY_BIND=127.0.0.1
+ENV WOL_RELAY_BIND=0.0.0.0
 
 CMD ["node", "index.js"]
