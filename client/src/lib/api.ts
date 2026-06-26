@@ -89,9 +89,10 @@ export const api = {
     }),
 
   wakeHost: (hostId: string) =>
-    request<{ ok: boolean; sentTo: string[] }>(`/hosts/${hostId}/wake`, {
-      method: "POST",
-    }),
+    request<{ ok: boolean; sentTo: string[]; hint?: string }>(
+      `/hosts/${hostId}/wake`,
+      { method: "POST" }
+    ),
 };
 
 export function wsBaseUrl(path: string): string {

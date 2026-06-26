@@ -52,6 +52,15 @@ const hostSchema = z.object({
   password: z.string().nullable().optional(),
   privateKey: z.string().nullable().optional(),
   macAddress: macAddressSchema,
+  wolBroadcast: z
+    .string()
+    .max(45)
+    .nullable()
+    .optional()
+    .transform((value) => {
+      if (!value?.trim()) return null;
+      return value.trim();
+    }),
   keyboardLayout: z.string().max(64).nullable().optional(),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/).default("#f59e0b"),
   tags: z.string().max(500).default(""),
@@ -164,6 +173,7 @@ router.post("/hosts", authMiddleware, (req, res) => {
     privateKey: parsed.data.privateKey ?? null,
     macAddress: parsed.data.macAddress ?? null,
     keyboardLayout: parsed.data.keyboardLayout ?? null,
+    wolBroadcast: parsed.data.wolBroadcast ?? null,
   });
 
   res.status(201).json(host);
@@ -215,11 +225,14 @@ router.post("/hosts/:id/wake", authMiddleware, async (req, res) => {
   }
 
   try {
-    const result = await wakeHost(host.macAddress, host.hostname);
+    const result = await wakeHost(host.macAddress, {
+      hostname: host.hostname,
+      wolBroadcast: host.wolBroadcast,
+    });
     console.log(
-      `[WOL] ${host.name} (${host.macAddress}) — paquet envoyé vers ${result.sentTo.join(", ")} (user: ${req.user!.username})`
+      `[WOL] ${host.name} (${host.macAddress}) — ${result.sentTo.join("; ")} (user: ${req.user!.username})`
     );
-    res.json({ ok: true, sentTo: result.sentTo });
+    res.json({ ok: true, sentTo: result.sentTo, hint: result.hint });
   } catch (err) {
     const message =
       err instanceof Error ? err.message : "Échec Wake-on-LAN";
@@ -236,7 +249,7 @@ router.post("/sessions/ping", authMiddleware, (req, res) => {
   );
   res.json({
     ok: true,
-    version: "1.3.2",
+    version: "1.3.3",
     host: host
       ? { id: host.id, name: host.name, protocol: host.protocol }
       : null,

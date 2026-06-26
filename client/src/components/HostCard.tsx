@@ -28,9 +28,13 @@ export default function HostCard({
     setWaking(true);
     setWakeMsg("");
     try {
-      await api.wakeHost(host.id);
-      setWakeMsg("Paquet WoL envoyé");
-      setTimeout(() => setWakeMsg(""), 3000);
+      const result = await api.wakeHost(host.id);
+      setWakeMsg(
+        result.hint
+          ? `Paquet envoyé. ${result.hint}`
+          : "Paquet WoL envoyé — démarrage en cours…"
+      );
+      setTimeout(() => setWakeMsg(""), 8000);
     } catch (err) {
       setWakeMsg(err instanceof Error ? err.message : "Échec WoL");
     } finally {
@@ -114,9 +118,9 @@ export default function HostCard({
               onClick={handleWake}
               disabled={waking}
               className="btn-secondary px-3"
-              title="Wake-on-LAN"
+              title="Réveiller (Wake-on-LAN)"
             >
-              {waking ? "…" : "⚡"}
+              {waking ? "…" : "⚡ Réveiller"}
             </button>
           )}
           <button

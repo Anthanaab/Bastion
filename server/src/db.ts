@@ -20,6 +20,7 @@ export interface Host {
   password: string | null;
   privateKey: string | null;
   macAddress: string | null;
+  wolBroadcast: string | null;
   keyboardLayout: string | null;
   color: string;
   tags: string;
@@ -61,6 +62,7 @@ function decryptHost(host: StoredHost): Host {
   return {
     ...host,
     macAddress: host.macAddress ?? null,
+    wolBroadcast: host.wolBroadcast ?? null,
     keyboardLayout: host.keyboardLayout ?? null,
     password: decryptNullable(host.password),
     privateKey: decryptNullable(host.privateKey),

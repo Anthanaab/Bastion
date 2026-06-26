@@ -1,6 +1,10 @@
 import dgram from "dgram";
 import dns from "dns/promises";
 
+const WOL_PORTS = [9, 7];
+const WOL_REPEATS = 3;
+const WOL_REPEAT_DELAY_MS = 150;
+
 export function normalizeMac(mac: string): Buffer {
   const hex = mac.replace(/[^0-9a-fA-F]/g, "");
   if (hex.length !== 12) {
@@ -11,6 +15,19 @@ export function normalizeMac(mac: string): Buffer {
 
 export function isValidMac(mac: string): boolean {
   return /^([0-9a-fA-F]{2}[:-]){5}[0-9a-fA-F]{2}$/.test(mac.trim());
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function buildMagicPacket(mac: Buffer): Buffer {
+  const packet = Buffer.alloc(6 + 16 * 6);
+  packet.fill(0xff, 0, 6);
+  for (let i = 0; i < 16; i++) {
+    mac.copy(packet, 6 + i * 6);
+  }
+  return packet;
 }
 
 function subnetBroadcast(ip: string): string | null {
@@ -30,25 +47,37 @@ async function resolveTargetIp(hostname: string): Promise<string | null> {
   }
 }
 
-function sendMagicPacket(mac: Buffer, broadcast: string): Promise<void> {
+function sendMagicPacketOnce(
+  mac: Buffer,
+  address: string,
+  port: number
+): Promise<void> {
   return new Promise((resolve, reject) => {
-    const socket = dgram.createSocket("udp4");
+    const socket = dgram.createSocket({ type: "udp4", reuseAddr: true });
+    const packet = buildMagicPacket(mac);
 
     socket.on("error", (err) => {
-      socket.close();
+      try {
+        socket.close();
+      } catch {
+        /* ignore */
+      }
       reject(err);
     });
 
-    const packet = Buffer.alloc(6 + 16 * 6);
-    packet.fill(0xff, 0, 6);
-    for (let i = 0; i < 16; i++) {
-      mac.copy(packet, 6 + i * 6);
-    }
-
     socket.bind(() => {
-      socket.setBroadcast(true);
-      socket.send(packet, 9, broadcast, (err) => {
-        socket.close();
+      try {
+        socket.setBroadcast(true);
+      } catch {
+        /* ignore */
+      }
+
+      socket.send(packet, port, address, (err) => {
+        try {
+          socket.close();
+        } catch {
+          /* ignore */
+        }
         if (err) reject(err);
         else resolve();
       });
@@ -56,32 +85,55 @@ function sendMagicPacket(mac: Buffer, broadcast: string): Promise<void> {
   });
 }
 
+async function sendMagicPacketBurst(
+  mac: Buffer,
+  address: string
+): Promise<void> {
+  for (let repeat = 0; repeat < WOL_REPEATS; repeat++) {
+    for (const port of WOL_PORTS) {
+      await sendMagicPacketOnce(mac, address, port);
+    }
+    if (repeat < WOL_REPEATS - 1) {
+      await sleep(WOL_REPEAT_DELAY_MS);
+    }
+  }
+}
+
+export interface WakeHostOptions {
+  hostname?: string;
+  wolBroadcast?: string | null;
+}
+
 export async function wakeHost(
   macAddress: string,
-  hostname?: string
-): Promise<{ sentTo: string[] }> {
+  options: WakeHostOptions = {}
+): Promise<{ sentTo: string[]; hint?: string }> {
   const mac = normalizeMac(macAddress);
-  const broadcasts = new Set<string>();
+  const targets = new Set<string>();
 
   const envBc = process.env.BASTION_WOL_BROADCAST?.trim();
-  if (envBc) broadcasts.add(envBc);
-  broadcasts.add("255.255.255.255");
+  if (envBc) targets.add(envBc);
+  if (options.wolBroadcast?.trim()) targets.add(options.wolBroadcast.trim());
 
-  if (hostname) {
-    const ip = await resolveTargetIp(hostname);
+  targets.add("255.255.255.255");
+
+  if (options.hostname) {
+    const ip = await resolveTargetIp(options.hostname);
     if (ip) {
+      targets.add(ip);
       const subnet = subnetBroadcast(ip);
-      if (subnet) broadcasts.add(subnet);
+      if (subnet) targets.add(subnet);
     }
   }
 
   const sentTo: string[] = [];
-  for (const bc of broadcasts) {
+  for (const address of targets) {
     try {
-      await sendMagicPacket(mac, bc);
-      sentTo.push(bc);
+      await sendMagicPacketBurst(mac, address);
+      sentTo.push(`${address} (×${WOL_REPEATS}, ports ${WOL_PORTS.join("/")})`);
+      console.log(`[WOL] Paquet envoyé → ${address}`);
     } catch (err) {
-      console.warn(`[WOL] Échec envoi vers ${bc}:`, err);
+      console.warn(`[WOL] Échec vers ${address}:`, err);
     }
   }
 
@@ -89,5 +141,14 @@ export async function wakeHost(
     throw new Error("Impossible d'envoyer le paquet Wake-on-LAN");
   }
 
-  return { sentTo };
+  const dockerBridge =
+    process.env.BASTION_WOL_DOCKER_BRIDGE !== "false" &&
+    !process.env.BASTION_NETWORK_HOST;
+
+  return {
+    sentTo,
+    hint: dockerBridge
+      ? "Docker en mode bridge : si le PC ne démarre pas, utilisez docker-compose.wol.yml (réseau host) — voir README."
+      : undefined,
+  };
 }

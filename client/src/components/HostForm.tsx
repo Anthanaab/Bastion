@@ -33,6 +33,7 @@ export default function HostForm({ initial, onSubmit, onCancel }: HostFormProps)
   const [color, setColor] = useState(initial?.color ?? COLORS[0]);
   const [tags, setTags] = useState(initial?.tags ?? "");
   const [macAddress, setMacAddress] = useState(initial?.macAddress ?? "");
+  const [wolBroadcast, setWolBroadcast] = useState(initial?.wolBroadcast ?? "");
   const [keyboardLayout, setKeyboardLayout] = useState(
     initial?.keyboardLayout ?? DEFAULT_RDP_KEYBOARD
   );
@@ -58,6 +59,7 @@ export default function HostForm({ initial, onSubmit, onCancel }: HostFormProps)
         password: password || undefined,
         privateKey: privateKey || undefined,
         macAddress: macAddress.trim() || null,
+        wolBroadcast: wolBroadcast.trim() || null,
         keyboardLayout:
           protocol === "rdp" ? keyboardLayout || DEFAULT_RDP_KEYBOARD : null,
         color,
@@ -210,6 +212,21 @@ export default function HostForm({ initial, onSubmit, onCancel }: HostFormProps)
         />
         <p className="mt-1 text-xs text-slate-500">
           Optionnel — permet de réveiller la machine à distance.
+        </p>
+      </div>
+
+      <div>
+        <label className="mb-1.5 block text-xs font-medium text-slate-400">
+          Broadcast WoL (optionnel)
+        </label>
+        <input
+          className="input-field font-mono"
+          value={wolBroadcast}
+          onChange={(e) => setWolBroadcast(e.target.value)}
+          placeholder="192.168.50.255"
+        />
+        <p className="mt-1 text-xs text-slate-500">
+          Broadcast du sous-réseau de la machine (souvent x.x.x.255).
         </p>
       </div>
 

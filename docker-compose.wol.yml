@@ -1,0 +1,24 @@
+# Wake-on-LAN : le conteneur bastion doit être sur le réseau local (pas le bridge Docker).
+#
+# Usage :
+#   docker compose -f docker-compose.yml -f docker-compose.wol.yml up -d --build
+#
+# Portainer : ajoutez ce fichier comme "additional compose file" ou copiez
+# network_mode: host sur le service bastion (voir README).
+
+services:
+  bastion:
+    network_mode: host
+    ports: !reset []
+    environment:
+      PORT: "${BASTION_PORT:-3333}"
+      GUACD_HOST: "127.0.0.1"
+      BASTION_NETWORK_HOST: "true"
+    networks: !reset []
+    depends_on:
+      guacd:
+        condition: service_started
+
+  guacd:
+    ports:
+      - "4822:4822"

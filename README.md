@@ -51,13 +51,30 @@ npm run dev
 
 ### Wake-on-LAN (Docker)
 
-Depuis un conteneur Docker, les paquets magiques peuvent ne pas atteindre le réseau local. Si le réveil ne fonctionne pas, définissez le broadcast de votre sous-réseau :
+Depuis un conteneur en **mode bridge**, les paquets magiques ne sortent en général **pas** sur le réseau local — le réveil échoue même si l’API répond OK.
 
+**Solution recommandée** — stack avec réseau host :
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.wol.yml up -d --build
+```
+
+Dans **Portainer** (stack Bastion) :
+1. Ajoutez le fichier `docker-compose.wol.yml` au dépôt
+2. Stack → **Editor** → cochez / fusionnez le compose WoL, ou modifiez à la main :
+   - `bastion` : `network_mode: host`
+   - `bastion` : `PORT=3333`, `GUACD_HOST=127.0.0.1`, `BASTION_NETWORK_HOST=true`
+   - Supprimez le mapping `ports:` sur `bastion` (inutile en host)
+   - `guacd` : exposez `4822:4822`
+3. Redeploy
+
+**Sans mode host** (souvent insuffisant) :
 ```env
 BASTION_WOL_BROADCAST=192.168.50.255
 ```
+Ou par machine : champ **Broadcast WoL** dans la fiche hôte.
 
-Sur certaines installations, `network_mode: host` sur le service `bastion` peut être nécessaire.
+**Côté PC cible** : WoL activé dans le BIOS, et dans Windows → carte réseau → « Autoriser ce périphérique à réveiller l’ordinateur » + « Magic Packet ».
 
 ## Architecture
 
@@ -75,6 +92,7 @@ Navigateur ──► Bastion (Node.js) ──► SSH direct
 | `JWT_SECRET` | Secret de signature JWT | *(obligatoire en prod)* |
 | `BASTION_ENCRYPTION_KEY` | Clé AES-256 pour mots de passe hôtes (64 hex) | dérivée de `JWT_SECRET` |
 | `BASTION_WOL_BROADCAST` | Adresse broadcast pour Wake-on-LAN | auto (255.255.255.255 + sous-réseau) |
+| `BASTION_NETWORK_HOST` | `true` si Bastion tourne en `network_mode: host` (désactive l’avertissement bridge WoL) | — |
 | `BASTION_ADMIN_USER` | Utilisateur admin initial | `admin` |
 | `BASTION_ADMIN_PASSWORD` | Mot de passe admin initial | `admin` |
 | `GUACD_HOST` | Hôte guacd | `guacd` |
