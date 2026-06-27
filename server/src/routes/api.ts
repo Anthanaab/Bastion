@@ -3,6 +3,8 @@ import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { v4 as uuid } from "uuid";
 import {
+  canUserAccessHost,
+  filterValidHostIds,
   createHost,
   createUser,
   deleteHost,
@@ -12,7 +14,7 @@ import {
   getHost,
   getStats,
   importHosts,
-  listHosts,
+  listHostsForUser,
   listSessions,
   listUsers,
   updateHost,
@@ -101,11 +103,13 @@ const createUserSchema = z.object({
   username: z.string().min(2).max(64),
   password: z.string().min(8).max(128),
   role: z.enum(["admin", "operator"]).default("operator"),
+  allowedHostIds: z.array(z.string().uuid()).nullable().optional(),
 });
 
 const updateUserSchema = z.object({
   role: z.enum(["admin", "operator"]).optional(),
   password: z.string().min(8).max(128).optional(),
+  allowedHostIds: z.array(z.string().uuid()).nullable().optional(),
 });
 
 router.post("/login", loginRateLimit, (req, res) => {
@@ -164,10 +168,19 @@ router.post("/users", authMiddleware, adminMiddleware, (req, res) => {
     res.status(409).json({ error: "Ce nom d'utilisateur existe déjà" });
     return;
   }
+  let allowedHostIds = parsed.data.allowedHostIds;
+  if (
+    parsed.data.role === "operator" &&
+    allowedHostIds !== undefined &&
+    allowedHostIds !== null
+  ) {
+    allowedHostIds = filterValidHostIds(allowedHostIds);
+  }
   const user = createUser(
     parsed.data.username,
     parsed.data.password,
-    parsed.data.role
+    parsed.data.role,
+    allowedHostIds
   );
   logAudit(req.user!.username, "user.create", `Utilisateur créé : ${user.username}`, {
     meta: { role: user.role },
@@ -177,15 +190,27 @@ router.post("/users", authMiddleware, adminMiddleware, (req, res) => {
 
 router.put("/users/:id", authMiddleware, adminMiddleware, (req, res) => {
   const parsed = updateUserSchema.safeParse(req.body);
-  if (!parsed.success || (!parsed.data.role && !parsed.data.password)) {
-    res.status(400).json({ error: "Rôle ou mot de passe requis" });
+  if (
+    !parsed.success ||
+    (!parsed.data.role &&
+      !parsed.data.password &&
+      parsed.data.allowedHostIds === undefined)
+  ) {
+    res.status(400).json({ error: "Rôle, mot de passe ou machines autorisées requis" });
     return;
   }
   if (req.params.id === req.user!.userId && parsed.data.role === "operator") {
     res.status(400).json({ error: "Vous ne pouvez pas retirer vos propres droits admin" });
     return;
   }
-  const user = updateUser(req.params.id, parsed.data);
+  const updateData = { ...parsed.data };
+  if (
+    updateData.allowedHostIds !== undefined &&
+    updateData.allowedHostIds !== null
+  ) {
+    updateData.allowedHostIds = filterValidHostIds(updateData.allowedHostIds);
+  }
+  const user = updateUser(req.params.id, updateData);
   if (!user) {
     res.status(404).json({ error: "Utilisateur introuvable" });
     return;
@@ -231,12 +256,12 @@ router.post("/me/password", authMiddleware, (req, res) => {
   res.json({ ok: true });
 });
 
-router.get("/stats", authMiddleware, (_req, res) => {
-  res.json(getStats());
+router.get("/stats", authMiddleware, (req, res) => {
+  res.json(getStats(req.user!.userId));
 });
 
-router.get("/hosts", authMiddleware, (_req, res) => {
-  const hosts = listHosts().map((h: Host) => ({
+router.get("/hosts", authMiddleware, (req, res) => {
+  const hosts = listHostsForUser(req.user!.userId).map((h: Host) => ({
     ...h,
     password: h.password ? "••••••••" : null,
     privateKey: h.privateKey ? "[clé privée]" : null,
@@ -244,8 +269,8 @@ router.get("/hosts", authMiddleware, (_req, res) => {
   res.json(hosts);
 });
 
-router.get("/hosts/status", authMiddleware, async (_req, res) => {
-  const hosts = listHosts();
+router.get("/hosts/status", authMiddleware, async (req, res) => {
+  const hosts = listHostsForUser(req.user!.userId);
   const entries = await Promise.all(
     hosts.map(async (host) => {
       try {
@@ -320,7 +345,7 @@ router.get("/sessions", authMiddleware, (req, res) => {
     200,
     Math.max(1, parseInt(String(req.query.limit ?? "50"), 10) || 50)
   );
-  res.json(listSessions(limit));
+  res.json(listSessions(limit, req.user!.userId));
 });
 
 router.get("/audit", authMiddleware, (req, res) => {
@@ -424,6 +449,10 @@ router.post("/hosts/:id/wake", authMiddleware, async (req, res) => {
     res.status(404).json({ error: "Hôte introuvable" });
     return;
   }
+  if (!canUserAccessHost(req.user!.userId, host.id)) {
+    res.status(403).json({ error: "Accès à cette machine non autorisé" });
+    return;
+  }
   if (!host.macAddress) {
     res.status(400).json({ error: "Aucune adresse MAC configurée pour cet hôte" });
     return;
@@ -450,12 +479,16 @@ router.post("/hosts/:id/wake", authMiddleware, async (req, res) => {
 router.post("/sessions/ping", authMiddleware, (req, res) => {
   const hostId = req.body?.hostId as string | undefined;
   const host = hostId ? getHost(hostId) : undefined;
+  if (host && !canUserAccessHost(req.user!.userId, host.id)) {
+    res.status(403).json({ error: "Accès à cette machine non autorisé" });
+    return;
+  }
   console.log(
     `[Session] ping ${host?.protocol ?? "?"} → ${host?.hostname ?? hostId} (user: ${req.user!.username})`
   );
   res.json({
     ok: true,
-    version: "1.6.0",
+    version: "1.7.0",
     host: host
       ? { id: host.id, name: host.name, protocol: host.protocol }
       : null,

@@ -56,15 +56,24 @@ export const api = {
 
   users: () => request<import("./types").UserAccount[]>("/users"),
 
-  createUser: (username: string, password: string, role: import("./types").UserRole) =>
+  createUser: (
+    username: string,
+    password: string,
+    role: import("./types").UserRole,
+    allowedHostIds?: string[] | null
+  ) =>
     request<import("./types").UserAccount>("/users", {
       method: "POST",
-      body: JSON.stringify({ username, password, role }),
+      body: JSON.stringify({ username, password, role, allowedHostIds }),
     }),
 
   updateUser: (
     id: string,
-    data: { role?: import("./types").UserRole; password?: string }
+    data: {
+      role?: import("./types").UserRole;
+      password?: string;
+      allowedHostIds?: string[] | null;
+    }
   ) =>
     request<import("./types").UserAccount>(`/users/${id}`, {
       method: "PUT",

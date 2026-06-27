@@ -37,6 +37,8 @@ export interface User {
   username: string;
   passwordHash: string;
   role: UserRole;
+  /** null/undefined = toutes les machines (opérateur legacy). [] = aucune. */
+  allowedHostIds?: string[] | null;
   createdAt: string;
 }
 
@@ -44,6 +46,7 @@ export interface UserPublic {
   id: string;
   username: string;
   role: UserRole;
+  allowedHostIds: string[] | null;
   createdAt: string;
 }
 
@@ -210,39 +213,84 @@ export function getUserById(id: string): User | undefined {
 
 export function listUsers(): UserPublic[] {
   return store.users
-    .map(({ passwordHash: _p, ...user }) => user)
+    .map(({ passwordHash: _p, ...user }) => ({
+      ...user,
+      allowedHostIds: user.role === "admin" ? null : (user.allowedHostIds ?? null),
+    }))
     .sort((a, b) => a.username.localeCompare(b.username));
+}
+
+export function filterValidHostIds(ids: string[]): string[] {
+  const known = new Set(store.hosts.map((h) => h.id));
+  return ids.filter((id) => known.has(id));
+}
+
+export function canUserAccessHost(userId: string, hostId: string): boolean {
+  const user = getUserById(userId);
+  if (!user) return false;
+  if (user.role === "admin") return true;
+  const allowed = user.allowedHostIds;
+  if (allowed === undefined || allowed === null) return true;
+  return allowed.includes(hostId);
+}
+
+export function listHostsForUser(userId: string): Host[] {
+  const user = getUserById(userId);
+  if (!user) return [];
+  const hosts = listHosts();
+  if (user.role === "admin") return hosts;
+  const allowed = user.allowedHostIds;
+  if (allowed === undefined || allowed === null) return hosts;
+  const set = new Set(allowed);
+  return hosts.filter((h) => set.has(h.id));
 }
 
 export function createUser(
   username: string,
   password: string,
-  role: UserRole
+  role: UserRole,
+  allowedHostIds?: string[] | null
 ): UserPublic {
   const user: User = {
     id: uuid(),
     username,
     passwordHash: bcrypt.hashSync(password, 12),
     role,
+    allowedHostIds: role === "admin" ? null : (allowedHostIds ?? []),
     createdAt: new Date().toISOString(),
   };
   store.users.push(user);
   persist();
   const { passwordHash: _p, ...pub } = user;
-  return pub;
+  return {
+    ...pub,
+    allowedHostIds: pub.role === "admin" ? null : (pub.allowedHostIds ?? []),
+  };
 }
 
 export function updateUser(
   id: string,
-  data: { role?: UserRole; password?: string }
+  data: { role?: UserRole; password?: string; allowedHostIds?: string[] | null }
 ): UserPublic | undefined {
   const user = store.users.find((u) => u.id === id);
   if (!user) return undefined;
-  if (data.role) user.role = data.role;
+  if (data.role) {
+    user.role = data.role;
+    if (data.role === "admin") user.allowedHostIds = null;
+    else if (user.allowedHostIds === null || user.allowedHostIds === undefined) {
+      user.allowedHostIds = [];
+    }
+  }
   if (data.password) user.passwordHash = bcrypt.hashSync(data.password, 12);
+  if (data.allowedHostIds !== undefined && user.role === "operator") {
+    user.allowedHostIds = data.allowedHostIds;
+  }
   persist();
   const { passwordHash: _p, ...pub } = user;
-  return pub;
+  return {
+    ...pub,
+    allowedHostIds: pub.role === "admin" ? null : (pub.allowedHostIds ?? []),
+  };
 }
 
 export function deleteUser(id: string): boolean {
@@ -317,6 +365,11 @@ export function deleteHost(id: string): boolean {
   const before = store.hosts.length;
   store.hosts = store.hosts.filter((h) => h.id !== id);
   store.sessions = store.sessions.filter((s) => s.hostId !== id);
+  for (const user of store.users) {
+    if (user.allowedHostIds?.length) {
+      user.allowedHostIds = user.allowedHostIds.filter((hid) => hid !== id);
+    }
+  }
   if (store.hosts.length < before) {
     persist();
     return true;
@@ -348,10 +401,15 @@ export function getSession(id: string): SessionRow | undefined {
   return store.sessions.find((s) => s.id === id);
 }
 
-export function listSessions(limit = 50): SessionView[] {
+export function listSessions(limit = 50, userId?: string): SessionView[] {
   const hostNames = new Map(store.hosts.map((h) => [h.id, h.name]));
+  const allowedHostIds =
+    userId === undefined
+      ? null
+      : new Set(listHostsForUser(userId).map((h) => h.id));
 
   return [...store.sessions]
+    .filter((session) => !allowedHostIds || allowedHostIds.has(session.hostId))
     .sort((a, b) => b.startedAt.localeCompare(a.startedAt))
     .slice(0, limit)
     .map((session) => {
@@ -447,14 +505,21 @@ export function endSession(id: string): void {
   }
 }
 
-export function getStats() {
+export function getStats(userId?: string) {
+  const hosts =
+    userId === undefined ? store.hosts : listHostsForUser(userId);
   const byProtocol: Record<string, number> = {};
-  for (const h of store.hosts) {
+  for (const h of hosts) {
     byProtocol[h.protocol] = (byProtocol[h.protocol] ?? 0) + 1;
   }
+  const allowedIds = new Set(hosts.map((h) => h.id));
+  let activeSessions = 0;
+  for (const session of store.sessions) {
+    if (!session.endedAt && allowedIds.has(session.hostId)) activeSessions += 1;
+  }
   return {
-    totalHosts: store.hosts.length,
-    activeSessions: liveSessionIds.size,
+    totalHosts: hosts.length,
+    activeSessions: userId === undefined ? liveSessionIds.size : activeSessions,
     byProtocol,
   };
 }

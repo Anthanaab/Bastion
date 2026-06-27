@@ -1,7 +1,7 @@
 import type { IncomingMessage } from "http";
 import { Client } from "ssh2";
 import { WebSocket } from "ws";
-import { getHost, createSession, endSession, getSession } from "../db";
+import { getHost, createSession, endSession, getSession, canUserAccessHost } from "../db";
 import { wsAuthFromRequest } from "../auth";
 import { attachWsKeepAlive } from "./ws-keepalive";
 import { verifySshHostKey } from "../ssh-known-hosts";
@@ -29,6 +29,11 @@ export function handleSshConnection(ws: WebSocket, request: IncomingMessage): vo
   const host = getHost(hostId);
   if (!host || host.protocol !== "ssh") {
     ws.close(4003, "Hôte SSH introuvable");
+    return;
+  }
+
+  if (!canUserAccessHost(user.userId, host.id)) {
+    ws.close(4004, "Accès non autorisé");
     return;
   }
 

@@ -62,5 +62,7 @@ export interface UserAccount {
   id: string;
   username: string;
   role: UserRole;
+  /** null = toutes les machines (opérateur sans restriction). */
+  allowedHostIds: string[] | null;
   createdAt: string;
 }

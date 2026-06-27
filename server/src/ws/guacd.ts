@@ -1,6 +1,6 @@
 import type { IncomingMessage } from "http";
 import { WebSocket } from "ws";
-import { getHost, createSession, endSession, getSession } from "../db";
+import { getHost, createSession, endSession, getSession, canUserAccessHost } from "../db";
 import { wsAuthFromRequest } from "../auth";
 import { GuacdClient, type ConnectionSettings } from "./guacd-client";
 import { toInstruction, splitClientMessage } from "./guacamole-parser";
@@ -136,6 +136,11 @@ export function handleGuacdConnection(
   const host = getHost(hostId);
   if (!host || (host.protocol !== "rdp" && host.protocol !== "vnc")) {
     ws.close(4003, "Hôte ou protocole invalide");
+    return;
+  }
+
+  if (!canUserAccessHost(user.userId, host.id)) {
+    ws.close(4004, "Accès non autorisé");
     return;
   }
 
