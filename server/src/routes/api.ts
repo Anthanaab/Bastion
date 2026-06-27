@@ -4,7 +4,9 @@ import { z } from "zod";
 import { v4 as uuid } from "uuid";
 import {
   createHost,
+  createUser,
   deleteHost,
+  deleteUser,
   exportHostsBundle,
   findUserByUsername,
   getHost,
@@ -12,13 +14,15 @@ import {
   importHosts,
   listHosts,
   listSessions,
+  listUsers,
   updateHost,
+  updateUser,
   updateUserPassword,
   type Protocol,
   type Host,
 } from "../db";
 import { logAudit, listAudit } from "../audit";
-import { authMiddleware, signToken } from "../auth";
+import { adminMiddleware, authMiddleware, signToken } from "../auth";
 import { probeTcp } from "../probe";
 import { isValidMac, wakeHost } from "../wol";
 import { loginRateLimit } from "../middleware/rate-limit";
@@ -93,6 +97,17 @@ const exportBundleSchema = z.object({
   hosts: z.array(importHostSchema).min(1).max(200),
 });
 
+const createUserSchema = z.object({
+  username: z.string().min(2).max(64),
+  password: z.string().min(8).max(128),
+  role: z.enum(["admin", "operator"]).default("operator"),
+});
+
+const updateUserSchema = z.object({
+  role: z.enum(["admin", "operator"]).optional(),
+  password: z.string().min(8).max(128).optional(),
+});
+
 router.post("/login", loginRateLimit, (req, res) => {
   const parsed = loginSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -106,7 +121,11 @@ router.post("/login", loginRateLimit, (req, res) => {
     return;
   }
 
-  const token = signToken({ userId: user.id, username: user.username });
+  const token = signToken({
+    userId: user.id,
+    username: user.username,
+    role: user.role,
+  });
   logAudit(user.username, "login", "Connexion réussie");
   res.cookie("bastion_token", token, {
     httpOnly: true,
@@ -114,7 +133,10 @@ router.post("/login", loginRateLimit, (req, res) => {
     secure: process.env.BASTION_COOKIE_SECURE === "true",
     maxAge: 7 * 24 * 60 * 60 * 1000,
   });
-  res.json({ token, user: { username: user.username } });
+  res.json({
+    token,
+    user: { username: user.username, role: user.role },
+  });
 });
 
 router.post("/logout", (_req, res) => {
@@ -123,7 +145,70 @@ router.post("/logout", (_req, res) => {
 });
 
 router.get("/me", authMiddleware, (req, res) => {
-  res.json({ user: { username: req.user!.username } });
+  res.json({
+    user: { username: req.user!.username, role: req.user!.role },
+  });
+});
+
+router.get("/users", authMiddleware, adminMiddleware, (_req, res) => {
+  res.json(listUsers());
+});
+
+router.post("/users", authMiddleware, adminMiddleware, (req, res) => {
+  const parsed = createUserSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Données utilisateur invalides" });
+    return;
+  }
+  if (findUserByUsername(parsed.data.username)) {
+    res.status(409).json({ error: "Ce nom d'utilisateur existe déjà" });
+    return;
+  }
+  const user = createUser(
+    parsed.data.username,
+    parsed.data.password,
+    parsed.data.role
+  );
+  logAudit(req.user!.username, "user.create", `Utilisateur créé : ${user.username}`, {
+    meta: { role: user.role },
+  });
+  res.status(201).json(user);
+});
+
+router.put("/users/:id", authMiddleware, adminMiddleware, (req, res) => {
+  const parsed = updateUserSchema.safeParse(req.body);
+  if (!parsed.success || (!parsed.data.role && !parsed.data.password)) {
+    res.status(400).json({ error: "Rôle ou mot de passe requis" });
+    return;
+  }
+  if (req.params.id === req.user!.userId && parsed.data.role === "operator") {
+    res.status(400).json({ error: "Vous ne pouvez pas retirer vos propres droits admin" });
+    return;
+  }
+  const user = updateUser(req.params.id, parsed.data);
+  if (!user) {
+    res.status(404).json({ error: "Utilisateur introuvable" });
+    return;
+  }
+  logAudit(req.user!.username, "user.update", `Utilisateur modifié : ${user.username}`);
+  res.json(user);
+});
+
+router.delete("/users/:id", authMiddleware, adminMiddleware, (req, res) => {
+  if (req.params.id === req.user!.userId) {
+    res.status(400).json({ error: "Vous ne pouvez pas supprimer votre propre compte" });
+    return;
+  }
+  const target = listUsers().find((u) => u.id === req.params.id);
+  const ok = deleteUser(req.params.id);
+  if (!ok) {
+    res.status(400).json({ error: "Impossible de supprimer cet utilisateur" });
+    return;
+  }
+  if (target) {
+    logAudit(req.user!.username, "user.delete", `Utilisateur supprimé : ${target.username}`);
+  }
+  res.json({ ok: true });
 });
 
 router.post("/me/password", authMiddleware, (req, res) => {
@@ -174,13 +259,13 @@ router.get("/hosts/status", authMiddleware, async (_req, res) => {
   res.json(Object.fromEntries(entries));
 });
 
-router.get("/hosts/export", authMiddleware, (req, res) => {
+router.get("/hosts/export", authMiddleware, adminMiddleware, (req, res) => {
   const bundle = exportHostsBundle();
   logAudit(req.user!.username, "host.export", `${bundle.hosts.length} hôte(s) exporté(s)`);
   res.json(bundle);
 });
 
-router.post("/hosts/import", authMiddleware, (req, res) => {
+router.post("/hosts/import", authMiddleware, adminMiddleware, (req, res) => {
   const body = req.body as { mode?: string; hosts?: unknown };
   let mode: "merge" | "replace" = "merge";
   let hostsInput: unknown[] | undefined;
@@ -246,7 +331,7 @@ router.get("/audit", authMiddleware, (req, res) => {
   res.json(listAudit(limit));
 });
 
-router.get("/hosts/:id", authMiddleware, (req, res) => {
+router.get("/hosts/:id", authMiddleware, adminMiddleware, (req, res) => {
   const host = getHost(req.params.id);
   if (!host) {
     res.status(404).json({ error: "Hôte introuvable" });
@@ -259,7 +344,7 @@ router.get("/hosts/:id", authMiddleware, (req, res) => {
   });
 });
 
-router.post("/hosts", authMiddleware, (req, res) => {
+router.post("/hosts", authMiddleware, adminMiddleware, (req, res) => {
   const parsed = hostSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.flatten() });
@@ -284,7 +369,7 @@ router.post("/hosts", authMiddleware, (req, res) => {
   res.status(201).json(maskHostSecrets(host));
 });
 
-router.put("/hosts/:id", authMiddleware, (req, res) => {
+router.put("/hosts/:id", authMiddleware, adminMiddleware, (req, res) => {
   const parsed = hostSchema.partial().safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.flatten() });
@@ -317,7 +402,7 @@ router.put("/hosts/:id", authMiddleware, (req, res) => {
   res.json(maskHostSecrets(host));
 });
 
-router.delete("/hosts/:id", authMiddleware, (req, res) => {
+router.delete("/hosts/:id", authMiddleware, adminMiddleware, (req, res) => {
   const existing = getHost(req.params.id);
   const ok = deleteHost(req.params.id);
   if (!ok) {
@@ -370,7 +455,7 @@ router.post("/sessions/ping", authMiddleware, (req, res) => {
   );
   res.json({
     ok: true,
-    version: "1.5.0",
+    version: "1.6.0",
     host: host
       ? { id: host.id, name: host.name, protocol: host.protocol }
       : null,

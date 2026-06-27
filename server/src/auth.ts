@@ -1,9 +1,11 @@
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
+import { getUserById, type UserRole } from "./db";
 
 export interface AuthPayload {
   userId: string;
   username: string;
+  role: UserRole;
 }
 
 declare global {
@@ -49,11 +51,33 @@ export function authMiddleware(
   }
 
   try {
-    req.user = verifyToken(token);
+    const payload = verifyToken(token);
+    const user = getUserById(payload.userId);
+    if (!user) {
+      res.status(401).json({ error: "Utilisateur introuvable" });
+      return;
+    }
+    req.user = {
+      userId: user.id,
+      username: user.username,
+      role: user.role,
+    };
     next();
   } catch {
     res.status(401).json({ error: "Session expirée" });
   }
+}
+
+export function adminMiddleware(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): void {
+  if (req.user?.role !== "admin") {
+    res.status(403).json({ error: "Droits administrateur requis" });
+    return;
+  }
+  next();
 }
 
 export function wsAuthFromRequest(
@@ -68,7 +92,14 @@ export function wsAuthFromRequest(
       if (match?.[1]) token = decodeURIComponent(match[1]);
     }
     if (!token) return null;
-    return verifyToken(token);
+    const payload = verifyToken(token);
+    const user = getUserById(payload.userId);
+    if (!user) return null;
+    return {
+      userId: user.id,
+      username: user.username,
+      role: user.role,
+    };
   } catch {
     return null;
   }

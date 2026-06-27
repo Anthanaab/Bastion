@@ -57,6 +57,11 @@ export default function Layout({
             </Link>
             <span className="hidden text-sm text-slate-400 sm:block">
               {user?.username}
+              {user?.role === "operator" && (
+                <span className="ml-1.5 rounded bg-bastion-800 px-1.5 py-0.5 text-[10px] uppercase text-slate-500">
+                  opérateur
+                </span>
+              )}
             </span>
             <button onClick={() => logout()} className="btn-secondary text-xs">
               Déconnexion

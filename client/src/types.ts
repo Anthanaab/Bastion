@@ -51,6 +51,16 @@ export interface HostExportBundle {
   hosts: Omit<Host, "createdAt" | "updatedAt">[];
 }
 
+export type UserRole = "admin" | "operator";
+
 export interface User {
   username: string;
+  role: UserRole;
+}
+
+export interface UserAccount {
+  id: string;
+  username: string;
+  role: UserRole;
+  createdAt: string;
 }

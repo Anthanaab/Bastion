@@ -44,7 +44,7 @@ async function request<T>(
 
 export const api = {
   login: (username: string, password: string) =>
-    request<{ token: string; user: { username: string } }>("/login", {
+    request<{ token: string; user: import("./types").User }>("/login", {
       method: "POST",
       body: JSON.stringify({ username, password }),
     }),
@@ -52,7 +52,27 @@ export const api = {
   logout: () =>
     request<{ ok: boolean }>("/logout", { method: "POST" }),
 
-  me: () => request<{ user: { username: string } }>("/me"),
+  me: () => request<{ user: import("./types").User }>("/me"),
+
+  users: () => request<import("./types").UserAccount[]>("/users"),
+
+  createUser: (username: string, password: string, role: import("./types").UserRole) =>
+    request<import("./types").UserAccount>("/users", {
+      method: "POST",
+      body: JSON.stringify({ username, password, role }),
+    }),
+
+  updateUser: (
+    id: string,
+    data: { role?: import("./types").UserRole; password?: string }
+  ) =>
+    request<import("./types").UserAccount>(`/users/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    }),
+
+  deleteUser: (id: string) =>
+    request<{ ok: boolean }>(`/users/${id}`, { method: "DELETE" }),
 
   stats: () => request<import("./types").Stats>("/stats"),
 

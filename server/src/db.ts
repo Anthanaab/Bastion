@@ -30,10 +30,20 @@ export interface Host {
   updatedAt: string;
 }
 
+export type UserRole = "admin" | "operator";
+
 export interface User {
   id: string;
   username: string;
   passwordHash: string;
+  role: UserRole;
+  createdAt: string;
+}
+
+export interface UserPublic {
+  id: string;
+  username: string;
+  role: UserRole;
   createdAt: string;
 }
 
@@ -137,6 +147,9 @@ function load(): void {
   for (const session of store.sessions) {
     if (session.username === undefined) session.username = null;
   }
+  for (const user of store.users) {
+    if (!user.role) user.role = "admin";
+  }
 }
 
 function trimSessions(): void {
@@ -180,6 +193,7 @@ export function ensureAdminUser(username: string, password: string): void {
     id: uuid(),
     username,
     passwordHash: bcrypt.hashSync(password, 12),
+    role: "admin",
     createdAt: new Date().toISOString(),
   });
   persist();
@@ -188,6 +202,58 @@ export function ensureAdminUser(username: string, password: string): void {
 
 export function findUserByUsername(username: string): User | undefined {
   return store.users.find((u) => u.username === username);
+}
+
+export function getUserById(id: string): User | undefined {
+  return store.users.find((u) => u.id === id);
+}
+
+export function listUsers(): UserPublic[] {
+  return store.users
+    .map(({ passwordHash: _p, ...user }) => user)
+    .sort((a, b) => a.username.localeCompare(b.username));
+}
+
+export function createUser(
+  username: string,
+  password: string,
+  role: UserRole
+): UserPublic {
+  const user: User = {
+    id: uuid(),
+    username,
+    passwordHash: bcrypt.hashSync(password, 12),
+    role,
+    createdAt: new Date().toISOString(),
+  };
+  store.users.push(user);
+  persist();
+  const { passwordHash: _p, ...pub } = user;
+  return pub;
+}
+
+export function updateUser(
+  id: string,
+  data: { role?: UserRole; password?: string }
+): UserPublic | undefined {
+  const user = store.users.find((u) => u.id === id);
+  if (!user) return undefined;
+  if (data.role) user.role = data.role;
+  if (data.password) user.passwordHash = bcrypt.hashSync(data.password, 12);
+  persist();
+  const { passwordHash: _p, ...pub } = user;
+  return pub;
+}
+
+export function deleteUser(id: string): boolean {
+  if (store.users.length <= 1) return false;
+  const before = store.users.length;
+  store.users = store.users.filter((u) => u.id !== id);
+  if (store.users.length < before) {
+    persist();
+    return true;
+  }
+  return false;
 }
 
 export function updateUserPassword(

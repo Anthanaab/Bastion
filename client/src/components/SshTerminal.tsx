@@ -11,6 +11,12 @@ interface SshTerminalProps {
   onSessionControl?: (control: SessionControl | null) => void;
 }
 
+const MAX_RECONNECT_ATTEMPTS = 12;
+
+function reconnectDelay(attempt: number): number {
+  return Math.min(2000 * Math.pow(1.4, attempt), 15000);
+}
+
 export default function SshTerminal({
   hostId,
   onSessionControl,
@@ -23,7 +29,13 @@ export default function SshTerminal({
   useEffect(() => {
     if (!containerRef.current) return;
 
+    let cancelled = false;
+    let intentional = false;
     let connected = false;
+    let ws: WebSocket | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let attempt = 0;
+
     const term = new Terminal({
       cursorBlink: true,
       fontFamily: "'JetBrains Mono', Consolas, monospace",
@@ -51,18 +63,13 @@ export default function SshTerminal({
     fitAddon.fit();
     termRef.current = term;
 
-    const cols = term.cols;
-    const rows = term.rows;
-    const ws = new WebSocket(
-      wsUrl("/ws/ssh", { hostId, cols: String(cols), rows: String(rows) })
-    );
-
-    ws.binaryType = "arraybuffer";
-
     const publishControl = () => {
       onSessionControlRef.current?.({
         connected,
-        disconnect: () => ws.close(),
+        disconnect: () => {
+          intentional = true;
+          ws?.close();
+        },
       });
     };
 
@@ -70,42 +77,103 @@ export default function SshTerminal({
       onSessionControlRef.current?.(null);
     };
 
-    ws.onopen = () => {
-      term.writeln("\x1b[38;5;214m[Bastion]\x1b[0m Connexion SSH en cours…");
-    };
-
-    ws.onmessage = (event) => {
-      if (typeof event.data === "string") {
-        try {
-          const msg = JSON.parse(event.data) as { type: string; message?: string };
-          if (msg.type === "error") {
-            term.writeln(`\r\n\x1b[31mErreur : ${msg.message}\x1b[0m`);
-          } else if (msg.type === "connected") {
-            connected = true;
-            publishControl();
-            term.writeln("\x1b[32mConnecté.\x1b[0m\r\n");
-          }
-        } catch {
-          term.write(event.data);
-        }
-      } else {
-        term.write(new Uint8Array(event.data as ArrayBuffer));
+    const closeWs = () => {
+      if (!ws) return;
+      ws.onopen = null;
+      ws.onmessage = null;
+      ws.onclose = null;
+      ws.onerror = null;
+      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+        ws.close();
       }
+      ws = null;
     };
 
-    ws.onclose = () => {
+    const scheduleReconnect = (reason: string) => {
+      if (cancelled || intentional) return;
       connected = false;
       clearControl();
-      term.writeln("\r\n\x1b[33mSession terminée.\x1b[0m");
+      closeWs();
+
+      if (attempt >= MAX_RECONNECT_ATTEMPTS) {
+        term.writeln(
+          `\r\n\x1b[31m${reason} — reconnexion automatique abandonnée.\x1b[0m`
+        );
+        term.writeln("\x1b[33mRechargez la page pour réessayer.\x1b[0m");
+        return;
+      }
+
+      const delay = reconnectDelay(attempt);
+      attempt += 1;
+      term.writeln(
+        `\r\n\x1b[33m${reason} — reconnexion dans ${Math.ceil(delay / 1000)}s (${attempt}/${MAX_RECONNECT_ATTEMPTS})…\x1b[0m`
+      );
+
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        openConnection();
+      }, delay);
+    };
+
+    const openConnection = () => {
+      if (cancelled || intentional) return;
+
+      const cols = term.cols;
+      const rows = term.rows;
+      ws = new WebSocket(
+        wsUrl("/ws/ssh", { hostId, cols: String(cols), rows: String(rows) })
+      );
+      ws.binaryType = "arraybuffer";
+
+      ws.onopen = () => {
+        term.writeln("\x1b[38;5;214m[Bastion]\x1b[0m Connexion SSH en cours…");
+      };
+
+      ws.onmessage = (event) => {
+        if (typeof event.data === "string") {
+          try {
+            const msg = JSON.parse(event.data) as { type: string; message?: string };
+            if (msg.type === "error") {
+              term.writeln(`\r\n\x1b[31mErreur : ${msg.message}\x1b[0m`);
+              scheduleReconnect(msg.message || "Erreur SSH");
+            } else if (msg.type === "connected") {
+              connected = true;
+              attempt = 0;
+              publishControl();
+              term.writeln("\x1b[32mConnecté.\x1b[0m\r\n");
+            }
+          } catch {
+            term.write(event.data);
+          }
+        } else {
+          term.write(new Uint8Array(event.data as ArrayBuffer));
+        }
+      };
+
+      ws.onclose = () => {
+        if (intentional || cancelled) {
+          connected = false;
+          clearControl();
+          term.writeln("\r\n\x1b[33mSession terminée.\x1b[0m");
+          return;
+        }
+        scheduleReconnect("Connexion SSH interrompue");
+      };
+
+      ws.onerror = () => {
+        if (!intentional && !cancelled) {
+          scheduleReconnect("Erreur réseau SSH");
+        }
+      };
     };
 
     term.onData((data) => {
-      if (ws.readyState === WebSocket.OPEN) ws.send(data);
+      if (ws?.readyState === WebSocket.OPEN) ws.send(data);
     });
 
     const resizeObserver = new ResizeObserver(() => {
       fitAddon.fit();
-      if (ws.readyState === WebSocket.OPEN) {
+      if (ws?.readyState === WebSocket.OPEN) {
         ws.send(
           JSON.stringify({
             type: "resize",
@@ -117,10 +185,15 @@ export default function SshTerminal({
     });
     resizeObserver.observe(containerRef.current);
 
+    openConnection();
+
     return () => {
+      cancelled = true;
+      intentional = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
       clearControl();
+      closeWs();
       resizeObserver.disconnect();
-      ws.close();
       term.dispose();
     };
   }, [hostId]);

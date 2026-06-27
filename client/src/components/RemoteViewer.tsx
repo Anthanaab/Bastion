@@ -10,6 +10,12 @@ interface RemoteViewerProps {
   viewportRef?: React.RefObject<HTMLDivElement | null>;
 }
 
+const MAX_RECONNECT_ATTEMPTS = 12;
+
+function reconnectDelay(attempt: number): number {
+  return Math.min(2000 * Math.pow(1.4, attempt), 15000);
+}
+
 function viewportSize(container: HTMLElement): { width: number; height: number } {
   const width = Math.min(3840, Math.max(800, container.clientWidth || 1920));
   const height = Math.min(2160, Math.max(600, container.clientHeight || 1080));
@@ -73,6 +79,9 @@ export default function RemoteViewer({
   const containerRef = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState("Connexion au serveur…");
   const [error, setError] = useState("");
+  const [reconnecting, setReconnecting] = useState(false);
+  const [manualReconnect, setManualReconnect] = useState(false);
+  const manualReconnectRef = useRef<(() => void) | null>(null);
   const onSessionControlRef = useRef(onSessionControl);
   onSessionControlRef.current = onSessionControl;
 
@@ -80,21 +89,58 @@ export default function RemoteViewer({
     if (!containerRef.current) return;
 
     let cancelled = false;
-    let cleanup: (() => void) | undefined;
+    let intentional = false;
+    let sessionCleanup: (() => void) | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let attempt = 0;
 
-    const start = async () => {
-      try {
-        const ping = await api.sessionPing(hostId);
-        if (cancelled) return;
-        setStatus(`Serveur OK (v${ping.version}) — connexion WebSocket…`);
-      } catch (err) {
-        if (cancelled) return;
-        setError(
-          err instanceof Error
-            ? err.message
-            : "Impossible de joindre l'API Bastion"
-        );
+    const cleanupSession = () => {
+      sessionCleanup?.();
+      sessionCleanup = null;
+    };
+
+    const scheduleReconnect = (reason: string) => {
+      if (cancelled || intentional) return;
+      cleanupSession();
+      onSessionControlRef.current?.(null);
+
+      if (attempt >= MAX_RECONNECT_ATTEMPTS) {
+        setReconnecting(false);
+        setManualReconnect(true);
+        setError(`${reason} — reconnexion automatique abandonnée`);
         return;
+      }
+
+      const delay = reconnectDelay(attempt);
+      attempt += 1;
+      setReconnecting(true);
+      setManualReconnect(false);
+      setError("");
+      setStatus(
+        `Reconnexion dans ${Math.ceil(delay / 1000)}s… (${attempt}/${MAX_RECONNECT_ATTEMPTS})`
+      );
+
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        void openSession();
+      }, delay);
+    };
+
+    const openSession = async () => {
+      if (attempt === 0) {
+        try {
+          const ping = await api.sessionPing(hostId);
+          if (cancelled) return;
+          setStatus(`Serveur OK (v${ping.version}) — connexion WebSocket…`);
+        } catch (err) {
+          if (cancelled) return;
+          scheduleReconnect(
+            err instanceof Error ? err.message : "Impossible de joindre l'API Bastion"
+          );
+          return;
+        }
+      } else {
+        setStatus("Reconnexion WebSocket…");
       }
 
       if (cancelled || !containerRef.current) return;
@@ -136,7 +182,10 @@ export default function RemoteViewer({
       const publishControl = () => {
         const control: SessionControl = {
           connected: true,
-          disconnect: () => client.disconnect(),
+          disconnect: () => {
+            intentional = true;
+            client.disconnect();
+          },
         };
 
         if (protocol === "rdp") {
@@ -212,7 +261,7 @@ export default function RemoteViewer({
 
       tunnel.onstatechange = (state: number) => {
         if (state === Guacamole.Tunnel.State.CONNECTING) {
-          setStatus("Connexion WebSocket…");
+          setStatus(attempt > 0 ? "Reconnexion WebSocket…" : "Connexion WebSocket…");
         } else if (state === Guacamole.Tunnel.State.OPEN) {
           guacdReady = true;
           setStatus("Ouverture du bureau distant…");
@@ -221,23 +270,28 @@ export default function RemoteViewer({
         } else if (state === Guacamole.Tunnel.State.CLOSED && clientConnected) {
           clientConnected = false;
           clearControl();
-          setError("Session fermée — reconnectez-vous");
+          scheduleReconnect("Session fermée");
         }
       };
 
-      tunnel.onerror = (status: Guacamole.Status) => {
+      tunnel.onerror = (tunnelStatus: Guacamole.Status) => {
         clientConnected = false;
         clearControl();
-        if (status.code === Guacamole.Status.Code.UPSTREAM_TIMEOUT) {
-          setError("Session expirée après inactivité — reconnectez-vous");
+        if (tunnelStatus.code === Guacamole.Status.Code.UPSTREAM_TIMEOUT) {
+          scheduleReconnect("Session expirée après inactivité");
           return;
         }
-        setError(status.message || "Connexion WebSocket interrompue");
+        scheduleReconnect(
+          tunnelStatus.message || "Connexion WebSocket interrompue"
+        );
       };
 
       client.onstatechange = (state: number) => {
         if (state === Guacamole.Client.State.CONNECTED) {
           clientConnected = true;
+          attempt = 0;
+          setReconnecting(false);
+          setManualReconnect(false);
           setStatus("Connecté");
           setError("");
           publishControl();
@@ -245,29 +299,29 @@ export default function RemoteViewer({
         } else if (state === Guacamole.Client.State.DISCONNECTED && guacdReady) {
           clientConnected = false;
           clearControl();
-          setStatus("Déconnecté");
+          scheduleReconnect("Déconnecté");
         }
       };
 
       client.onerror = (err: Guacamole.Status) => {
         clientConnected = false;
         clearControl();
-        setError(err.message || "Erreur de connexion distante");
+        scheduleReconnect(err.message || "Erreur de connexion distante");
       };
 
       client.connect(connectData);
 
       const handshakeTimeout = window.setTimeout(() => {
-        if (!guacdReady) {
-          setError(
+        if (!guacdReady && !cancelled) {
+          scheduleReconnect(
             "Handshake guacd expiré — vérifiez docker logs bastion et identifiants RDP"
           );
         }
       }, 15000);
 
       const timeout = window.setTimeout(() => {
-        if (client.getDisplay().getWidth() === 0) {
-          setError(
+        if (!clientConnected && client.getDisplay().getWidth() === 0 && !cancelled) {
+          scheduleReconnect(
             "Délai dépassé — identifiants RDP ou pare-feu Windows à vérifier"
           );
         }
@@ -278,7 +332,7 @@ export default function RemoteViewer({
       });
       resizeObserver.observe(containerRef.current);
 
-      cleanup = () => {
+      sessionCleanup = () => {
         if (clientConnected) clearControl();
         element.removeEventListener("paste", onPaste);
         window.clearTimeout(handshakeTimeout);
@@ -289,12 +343,25 @@ export default function RemoteViewer({
       };
     };
 
-    start();
+    manualReconnectRef.current = () => {
+      attempt = 0;
+      intentional = false;
+      setManualReconnect(false);
+      setError("");
+      setReconnecting(true);
+      cleanupSession();
+      void openSession();
+    };
+
+    void openSession();
 
     return () => {
       cancelled = true;
+      intentional = true;
+      manualReconnectRef.current = null;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      cleanupSession();
       onSessionControlRef.current?.(null);
-      cleanup?.();
     };
   }, [hostId, protocol]);
 
@@ -305,11 +372,24 @@ export default function RemoteViewer({
         className={`pointer-events-none absolute left-3 top-3 max-w-md rounded-md px-2 py-1 text-xs backdrop-blur ${
           error
             ? "bg-red-950/90 text-red-300"
-            : "bg-bastion-900/80 text-slate-400"
+            : reconnecting
+              ? "bg-amber-950/90 text-amber-200"
+              : "bg-bastion-900/80 text-slate-400"
         }`}
       >
         {error || status}
       </div>
+      {manualReconnect && (
+        <div className="absolute inset-0 flex items-center justify-center bg-black/60">
+          <button
+            type="button"
+            className="btn-primary pointer-events-auto"
+            onClick={() => manualReconnectRef.current?.()}
+          >
+            Reconnecter
+          </button>
+        </div>
+      )}
     </div>
   );
 }

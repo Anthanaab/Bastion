@@ -8,7 +8,8 @@ import {
 import { api, clearToken, getToken, setToken } from "../lib/api";
 
 interface AuthContextValue {
-  user: { username: string } | null;
+  user: { username: string; role: import("./types").UserRole } | null;
+  isAdmin: boolean;
   loading: boolean;
   login: (username: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
@@ -17,7 +18,10 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<{ username: string } | null>(null);
+  const [user, setUser] = useState<{
+    username: string;
+    role: import("./types").UserRole;
+  } | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -45,7 +49,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        isAdmin: user?.role === "admin",
+        loading,
+        login,
+        logout,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

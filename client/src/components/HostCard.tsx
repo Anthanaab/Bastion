@@ -9,6 +9,7 @@ interface HostCardProps {
   online?: boolean | null;
   onEdit: (host: Host) => void;
   onDelete: (host: Host) => void;
+  canManage?: boolean;
   onTagClick?: (tag: string) => void;
 }
 
@@ -17,6 +18,7 @@ export default function HostCard({
   online = null,
   onEdit,
   onDelete,
+  canManage = true,
   onTagClick,
 }: HostCardProps) {
   const [waking, setWaking] = useState(false);
@@ -129,20 +131,24 @@ export default function HostCard({
               {waking ? "…" : "⚡ Réveiller"}
             </button>
           )}
-          <button
-            onClick={() => onEdit(host)}
-            className="btn-secondary px-3"
-            title="Modifier"
-          >
-            ✎
-          </button>
-          <button
-            onClick={() => onDelete(host)}
-            className="btn-secondary px-3 text-red-400 hover:border-red-500/40"
-            title="Supprimer"
-          >
-            ✕
-          </button>
+          {canManage && (
+            <>
+              <button
+                onClick={() => onEdit(host)}
+                className="btn-secondary px-3"
+                title="Modifier"
+              >
+                ✎
+              </button>
+              <button
+                onClick={() => onDelete(host)}
+                className="btn-secondary px-3 text-red-400 hover:border-red-500/40"
+                title="Supprimer"
+              >
+                ✕
+              </button>
+            </>
+          )}
         </div>
       </div>
     </article>

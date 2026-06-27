@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Layout from "../components/Layout";
 import HostCard from "../components/HostCard";
 import HostForm from "../components/HostForm";
+import { useAuth } from "../context/AuthContext";
 import { api } from "../lib/api";
 import type { Host, Stats } from "../types";
 
@@ -64,6 +65,7 @@ function StatCard({
 }
 
 export default function DashboardPage() {
+  const { isAdmin } = useAuth();
   const [hosts, setHosts] = useState<Host[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -76,11 +78,15 @@ export default function DashboardPage() {
   const [editingHost, setEditingHost] = useState<Host | null>(null);
   const [hostStatus, setHostStatus] = useState<Record<string, boolean>>({});
 
+  const refreshHostStatus = () => {
+    api.hostsStatus().then(setHostStatus).catch(() => setHostStatus({}));
+  };
+
   const load = async () => {
     const [h, s] = await Promise.all([api.hosts(), api.stats()]);
     setHosts(h);
     setStats(s);
-    api.hostsStatus().then(setHostStatus).catch(() => setHostStatus({}));
+    refreshHostStatus();
   };
 
   useEffect(() => {
@@ -88,6 +94,13 @@ export default function DashboardPage() {
       .catch(console.error)
       .finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => {
+    if (loading || hosts.length === 0) return;
+
+    const interval = window.setInterval(refreshHostStatus, 10_000);
+    return () => window.clearInterval(interval);
+  }, [loading, hosts.length]);
 
   const allTags = useMemo(() => {
     const tags = new Set<string>();
@@ -213,26 +226,28 @@ export default function DashboardPage() {
           </div>
           <div className="flex shrink-0 flex-wrap gap-2">
             <button
-              onClick={() =>
-                api.hostsStatus().then(setHostStatus).catch(() => {})
-              }
+              onClick={refreshHostStatus}
               className="btn-secondary"
               title="Actualiser le statut réseau"
             >
               ↻
             </button>
-            <button onClick={() => void handleExport()} className="btn-secondary">
-              Exporter
-            </button>
-            <button
-              onClick={() => importInputRef.current?.click()}
-              className="btn-secondary"
-            >
-              Importer
-            </button>
-            <button onClick={() => setModalOpen(true)} className="btn-primary">
-              + Ajouter une machine
-            </button>
+            {isAdmin && (
+              <>
+                <button onClick={() => void handleExport()} className="btn-secondary">
+                  Exporter
+                </button>
+                <button
+                  onClick={() => importInputRef.current?.click()}
+                  className="btn-secondary"
+                >
+                  Importer
+                </button>
+                <button onClick={() => setModalOpen(true)} className="btn-primary">
+                  + Ajouter une machine
+                </button>
+              </>
+            )}
             <input
               ref={importInputRef}
               type="file"
@@ -321,6 +336,7 @@ export default function DashboardPage() {
               online={host.id in hostStatus ? hostStatus[host.id] : null}
               onEdit={openEdit}
               onDelete={handleDelete}
+              canManage={isAdmin}
               onTagClick={(tag) =>
                 setTagFilter((current) => (current === tag ? null : tag))
               }

@@ -34,6 +34,9 @@ function actionLabel(action: string): string {
     "session.end": "Session fermée",
     wol: "Wake-on-LAN",
     "password.change": "Mot de passe",
+    "user.create": "Utilisateur créé",
+    "user.update": "Utilisateur modifié",
+    "user.delete": "Utilisateur supprimé",
   };
   return labels[action] ?? action;
 }

@@ -10,7 +10,10 @@ export type AuditAction =
   | "session.start"
   | "session.end"
   | "wol"
-  | "password.change";
+  | "password.change"
+  | "user.create"
+  | "user.update"
+  | "user.delete";
 
 export interface AuditEntry {
   id: string;
