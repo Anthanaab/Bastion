@@ -3,8 +3,15 @@ import { Link, useParams } from "react-router-dom";
 import Layout from "../components/Layout";
 import SshTerminal from "../components/SshTerminal";
 import RemoteViewer from "../components/RemoteViewer";
+import RdpSettingsPanel from "../components/RdpSettingsPanel";
 import { ProtocolBadge } from "../components/ProtocolBadge";
 import { api } from "../lib/api";
+import {
+  loadRdpDisplaySettings,
+  RDP_QUALITY_PROFILES,
+  saveRdpDisplaySettings,
+  type RdpDisplaySettings,
+} from "../lib/rdpSettings";
 import type { SessionControl } from "../lib/session";
 import type { Host } from "../types";
 
@@ -17,6 +24,10 @@ export default function SessionPage() {
   const [clipboardMsg, setClipboardMsg] = useState("");
   const [clipboardOpen, setClipboardOpen] = useState(false);
   const [clipboardText, setClipboardText] = useState("");
+  const [rdpSettingsOpen, setRdpSettingsOpen] = useState(false);
+  const [rdpSettings, setRdpSettings] = useState<RdpDisplaySettings>(() =>
+    loadRdpDisplaySettings(hostId ?? "")
+  );
   const viewportRef = useRef<HTMLDivElement>(null);
 
   const handleSessionControl = useCallback((control: SessionControl | null) => {
@@ -25,6 +36,9 @@ export default function SessionPage() {
 
   useEffect(() => {
     setSession(null);
+    if (hostId) {
+      setRdpSettings(loadRdpDisplaySettings(hostId));
+    }
   }, [hostId]);
 
   useEffect(() => {
@@ -48,6 +62,18 @@ export default function SessionPage() {
       setClipboardOpen(true);
     }
   };
+
+  const handleApplyRdpSettings = (settings: RdpDisplaySettings) => {
+    if (!hostId) return;
+    saveRdpDisplaySettings(hostId, settings);
+    setRdpSettings(settings);
+  };
+
+  const rdpSettingsSummary =
+    rdpSettings &&
+    `${rdpSettings.resolutionMode === "auto" ? "Auto" : `${rdpSettings.width}×${rdpSettings.height}`} · ${
+      RDP_QUALITY_PROFILES[rdpSettings.qualityProfile].label
+    }`;
 
   const handleSendClipboardText = () => {
     if (!session?.rdp || !clipboardText.trim()) return;
@@ -103,6 +129,16 @@ export default function SessionPage() {
         </div>
 
         <div className="flex items-center gap-2">
+          {host.protocol === "rdp" && (
+            <button
+              type="button"
+              onClick={() => setRdpSettingsOpen(true)}
+              className="btn-secondary py-2 text-xs"
+              title={rdpSettingsSummary ?? "Réglages RDP"}
+            >
+              Réglages
+            </button>
+          )}
           {session?.connected && session.rdp && (
             <>
               <button
@@ -176,11 +212,21 @@ export default function SessionPage() {
           <RemoteViewer
             hostId={host.id}
             protocol={host.protocol}
+            rdpSettings={host.protocol === "rdp" ? rdpSettings : undefined}
             onSessionControl={handleSessionControl}
             viewportRef={viewportRef}
           />
         )}
       </div>
+
+      {host.protocol === "rdp" && (
+        <RdpSettingsPanel
+          open={rdpSettingsOpen}
+          settings={rdpSettings}
+          onClose={() => setRdpSettingsOpen(false)}
+          onApply={handleApplyRdpSettings}
+        />
+      )}
 
       {clipboardOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
