@@ -17,6 +17,45 @@ function rdpDisableGfx(): boolean {
   return raw !== "false" && raw !== "0";
 }
 
+type RdpQualityProfile = "performance" | "balanced" | "quality";
+
+function parseQualityProfile(raw: string | null): RdpQualityProfile {
+  if (raw === "performance" || raw === "quality") return raw;
+  return "balanced";
+}
+
+function applyRdpQualityProfile(
+  settings: ConnectionSettings,
+  profile: RdpQualityProfile
+): void {
+  if (profile === "performance") {
+    settings["color-depth"] = "16";
+    settings["disable-gfx"] = "true";
+    settings["enable-wallpaper"] = "false";
+    settings["enable-font-smoothing"] = "false";
+    settings["enable-desktop-composition"] = "false";
+    settings.image = ["image/jpeg"];
+    return;
+  }
+
+  if (profile === "quality") {
+    settings["color-depth"] = "32";
+    settings["disable-gfx"] = "false";
+    settings["enable-wallpaper"] = "true";
+    settings["enable-font-smoothing"] = "true";
+    settings["enable-desktop-composition"] = "true";
+    settings.image = ["image/png", "image/jpeg"];
+    return;
+  }
+
+  settings["color-depth"] = "24";
+  settings["disable-gfx"] = rdpDisableGfx() ? "true" : "false";
+  settings["enable-wallpaper"] = "false";
+  settings["enable-font-smoothing"] = "true";
+  settings["enable-desktop-composition"] = "false";
+  settings.image = ["image/png", "image/jpeg"];
+}
+
 function parseViewportSize(
   raw: string | null,
   fallback: number,
@@ -57,7 +96,8 @@ function buildSettings(
   protocol: "rdp" | "vnc",
   host: NonNullable<ReturnType<typeof getHost>>,
   securityMode?: string,
-  viewport?: { width: number; height: number }
+  viewport?: { width: number; height: number },
+  qualityProfile: RdpQualityProfile = "balanced"
 ): ConnectionSettings {
   let username = host.username ?? "";
   let domain = "";
@@ -89,13 +129,7 @@ function buildSettings(
     if (rdpIgnoreCert()) {
       settings["ignore-cert"] = "true";
     }
-    settings["color-depth"] = "24";
-    settings["enable-wallpaper"] = "false";
-    settings["enable-font-smoothing"] = "true";
-    settings["enable-desktop-composition"] = "false";
-    if (rdpDisableGfx()) {
-      settings["disable-gfx"] = "true";
-    }
+    applyRdpQualityProfile(settings, qualityProfile);
     settings["server-layout"] = rdpKeyboardLayout(host);
     settings["server-alive-interval"] = "30";
   } else {
@@ -133,6 +167,7 @@ export function handleGuacdConnection(
     width: parseViewportSize(params.get("width"), 1920, 800, 3840),
     height: parseViewportSize(params.get("height"), 1080, 600, 2160),
   };
+  const qualityProfile = parseQualityProfile(params.get("quality"));
 
   const host = getHost(hostId);
   if (!host || (host.protocol !== "rdp" && host.protocol !== "vnc")) {
@@ -166,7 +201,8 @@ export function handleGuacdConnection(
   });
 
   console.log(
-    `[Guacd] Session ${protocol} → ${host.hostname}:${host.port} (${host.name}) ${viewport.width}x${viewport.height}`
+    `[Guacd] Session ${protocol} → ${host.hostname}:${host.port} (${host.name}) ${viewport.width}x${viewport.height}` +
+      (protocol === "rdp" ? ` quality=${qualityProfile}` : "")
   );
 
   let guacdClient: GuacdClient | null = null;
@@ -201,7 +237,13 @@ export function handleGuacdConnection(
       guacdClient = null;
     }
 
-    const settings = buildSettings(protocol, host, securityMode, viewport);
+    const settings = buildSettings(
+      protocol,
+      host,
+      securityMode,
+      viewport,
+      qualityProfile
+    );
 
     if (protocol === "rdp" && securityMode) {
       console.log(`[Guacd] RDP security=${securityMode}`);

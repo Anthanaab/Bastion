@@ -1,11 +1,17 @@
 import { useEffect, useRef, useState } from "react";
 import Guacamole from "guacamole-common-js";
 import { api, wsBaseUrl, wsConnectData } from "../lib/api";
+import {
+  resolveRdpResolution,
+  rdpSettingsSignature,
+  type RdpDisplaySettings,
+} from "../lib/rdpSettings";
 import type { SessionControl } from "../lib/session";
 
 interface RemoteViewerProps {
   hostId: string;
   protocol: "rdp" | "vnc";
+  rdpSettings?: RdpDisplaySettings;
   onSessionControl?: (control: SessionControl | null) => void;
   viewportRef?: React.RefObject<HTMLDivElement | null>;
 }
@@ -73,6 +79,7 @@ function copyToLocalClipboardFallback(text: string): void {
 export default function RemoteViewer({
   hostId,
   protocol,
+  rdpSettings,
   onSessionControl,
   viewportRef,
 }: RemoteViewerProps) {
@@ -145,16 +152,23 @@ export default function RemoteViewer({
 
       if (cancelled || !containerRef.current) return;
 
-      const { width, height } = viewportSize(containerRef.current);
+      const { width, height } =
+        protocol === "rdp" && rdpSettings
+          ? resolveRdpResolution(rdpSettings, containerRef.current)
+          : viewportSize(containerRef.current);
       const tunnel = new Guacamole.WebSocketTunnel(wsBaseUrl("/ws/guacd"));
       tunnel.receiveTimeout = 300_000;
       tunnel.unstableThreshold = 60_000;
 
-      const connectData = wsConnectData({
+      const connectParams: Record<string, string> = {
         hostId,
         width: String(width),
         height: String(height),
-      });
+      };
+      if (protocol === "rdp" && rdpSettings) {
+        connectParams.quality = rdpSettings.qualityProfile;
+      }
+      const connectData = wsConnectData(connectParams);
 
       let guacdReady = false;
       let clientConnected = false;
@@ -364,7 +378,7 @@ export default function RemoteViewer({
       cleanupSession();
       onSessionControlRef.current?.(null);
     };
-  }, [hostId, protocol]);
+  }, [hostId, protocol, rdpSettings ? rdpSettingsSignature(rdpSettings) : ""]);
 
   return (
     <div className="relative h-full w-full overflow-hidden rounded-lg border border-bastion-700 bg-black">
