@@ -9,6 +9,8 @@ import {
 } from "./crypto";
 import { bindAuditStore } from "./audit";
 import type { AuditEntry } from "./audit";
+import { maybeBackup } from "./backup";
+import { decryptTotpSecret } from "./totp";
 
 export type Protocol = "ssh" | "rdp" | "vnc";
 
@@ -32,13 +34,33 @@ export interface Host {
 
 export type UserRole = "admin" | "operator";
 
+export interface AccessGroup {
+  id: string;
+  name: string;
+  hostIds: string[];
+  createdAt: string;
+}
+
+export interface AuthSessionRow {
+  id: string;
+  userId: string;
+  jti: string;
+  createdAt: string;
+  expiresAt: string;
+  revoked?: boolean;
+}
+
 export interface User {
   id: string;
   username: string;
   passwordHash: string;
   role: UserRole;
-  /** null/undefined = toutes les machines (opérateur legacy). [] = aucune. */
+  /** null/undefined = toutes les machines (legacy). [] = aucune directe. */
   allowedHostIds?: string[] | null;
+  groupIds?: string[];
+  pinnedHostIds?: string[];
+  totpSecret?: string | null;
+  totpEnabled?: boolean;
   createdAt: string;
 }
 
@@ -47,6 +69,9 @@ export interface UserPublic {
   username: string;
   role: UserRole;
   allowedHostIds: string[] | null;
+  groupIds: string[];
+  pinnedHostIds: string[];
+  totpEnabled: boolean;
   createdAt: string;
 }
 
@@ -55,6 +80,7 @@ export interface SessionRow {
   hostId: string;
   protocol: Protocol;
   username: string | null;
+  bastionUserId?: string | null;
   startedAt: string;
   endedAt: string | null;
 }
@@ -86,6 +112,8 @@ interface Store {
   hosts: StoredHost[];
   sessions: SessionRow[];
   auditLog?: AuditEntry[];
+  groups?: AccessGroup[];
+  authSessions?: AuthSessionRow[];
 }
 
 const MAX_SESSION_ROWS = 2000;
@@ -140,6 +168,21 @@ function persist(): void {
   const dir = path.dirname(storePath);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(storePath, JSON.stringify(store, null, 2), "utf8");
+  maybeBackup();
+}
+
+function toUserPublic(user: User): UserPublic {
+  return {
+    id: user.id,
+    username: user.username,
+    role: user.role,
+    allowedHostIds:
+      user.role === "admin" ? null : (user.allowedHostIds ?? null),
+    groupIds: user.role === "admin" ? [] : (user.groupIds ?? []),
+    pinnedHostIds: user.pinnedHostIds ?? [],
+    totpEnabled: !!user.totpEnabled,
+    createdAt: user.createdAt,
+  };
 }
 
 function load(): void {
@@ -147,12 +190,18 @@ function load(): void {
     store = JSON.parse(fs.readFileSync(storePath, "utf8")) as Store;
   }
   if (!store.auditLog) store.auditLog = [];
+  if (!store.groups) store.groups = [];
+  if (!store.authSessions) store.authSessions = [];
   for (const session of store.sessions) {
     if (session.username === undefined) session.username = null;
+    if (session.bastionUserId === undefined) session.bastionUserId = null;
   }
   for (const user of store.users) {
     if (!user.role) user.role = "admin";
+    if (!user.groupIds) user.groupIds = [];
+    if (!user.pinnedHostIds) user.pinnedHostIds = [];
   }
+  pruneExpiredAuthSessions();
 }
 
 function trimSessions(): void {
@@ -213,11 +262,33 @@ export function getUserById(id: string): User | undefined {
 
 export function listUsers(): UserPublic[] {
   return store.users
-    .map(({ passwordHash: _p, ...user }) => ({
-      ...user,
-      allowedHostIds: user.role === "admin" ? null : (user.allowedHostIds ?? null),
-    }))
+    .map((u) => toUserPublic(u))
     .sort((a, b) => a.username.localeCompare(b.username));
+}
+
+function resolveEffectiveHostIds(user: User): Set<string> | null {
+  if (user.role === "admin") return null;
+
+  const hasGroups = (user.groupIds?.length ?? 0) > 0;
+  const direct = user.allowedHostIds;
+
+  if (!hasGroups && (direct === null || direct === undefined)) {
+    return null;
+  }
+
+  const ids = new Set<string>();
+  if (hasGroups) {
+    for (const gid of user.groupIds!) {
+      const group = store.groups?.find((g) => g.id === gid);
+      if (group) {
+        for (const hid of group.hostIds) ids.add(hid);
+      }
+    }
+  }
+  if (direct?.length) {
+    for (const hid of direct) ids.add(hid);
+  }
+  return ids;
 }
 
 export function filterValidHostIds(ids: string[]): string[] {
@@ -229,9 +300,9 @@ export function canUserAccessHost(userId: string, hostId: string): boolean {
   const user = getUserById(userId);
   if (!user) return false;
   if (user.role === "admin") return true;
-  const allowed = user.allowedHostIds;
-  if (allowed === undefined || allowed === null) return true;
-  return allowed.includes(hostId);
+  const effective = resolveEffectiveHostIds(user);
+  if (effective === null) return true;
+  return effective.has(hostId);
 }
 
 export function listHostsForUser(userId: string): Host[] {
@@ -239,17 +310,17 @@ export function listHostsForUser(userId: string): Host[] {
   if (!user) return [];
   const hosts = listHosts();
   if (user.role === "admin") return hosts;
-  const allowed = user.allowedHostIds;
-  if (allowed === undefined || allowed === null) return hosts;
-  const set = new Set(allowed);
-  return hosts.filter((h) => set.has(h.id));
+  const effective = resolveEffectiveHostIds(user);
+  if (effective === null) return hosts;
+  return hosts.filter((h) => effective.has(h.id));
 }
 
 export function createUser(
   username: string,
   password: string,
   role: UserRole,
-  allowedHostIds?: string[] | null
+  allowedHostIds?: string[] | null,
+  groupIds?: string[]
 ): UserPublic {
   const user: User = {
     id: uuid(),
@@ -257,27 +328,33 @@ export function createUser(
     passwordHash: bcrypt.hashSync(password, 12),
     role,
     allowedHostIds: role === "admin" ? null : (allowedHostIds ?? []),
+    groupIds: role === "admin" ? [] : filterValidGroupIds(groupIds ?? []),
+    pinnedHostIds: [],
+    totpEnabled: false,
     createdAt: new Date().toISOString(),
   };
   store.users.push(user);
   persist();
-  const { passwordHash: _p, ...pub } = user;
-  return {
-    ...pub,
-    allowedHostIds: pub.role === "admin" ? null : (pub.allowedHostIds ?? []),
-  };
+  return toUserPublic(user);
 }
 
 export function updateUser(
   id: string,
-  data: { role?: UserRole; password?: string; allowedHostIds?: string[] | null }
+  data: {
+    role?: UserRole;
+    password?: string;
+    allowedHostIds?: string[] | null;
+    groupIds?: string[];
+  }
 ): UserPublic | undefined {
   const user = store.users.find((u) => u.id === id);
   if (!user) return undefined;
   if (data.role) {
     user.role = data.role;
-    if (data.role === "admin") user.allowedHostIds = null;
-    else if (user.allowedHostIds === null || user.allowedHostIds === undefined) {
+    if (data.role === "admin") {
+      user.allowedHostIds = null;
+      user.groupIds = [];
+    } else if (user.allowedHostIds === null || user.allowedHostIds === undefined) {
       user.allowedHostIds = [];
     }
   }
@@ -285,18 +362,180 @@ export function updateUser(
   if (data.allowedHostIds !== undefined && user.role === "operator") {
     user.allowedHostIds = data.allowedHostIds;
   }
+  if (data.groupIds !== undefined && user.role === "operator") {
+    user.groupIds = filterValidGroupIds(data.groupIds);
+  }
   persist();
-  const { passwordHash: _p, ...pub } = user;
-  return {
-    ...pub,
-    allowedHostIds: pub.role === "admin" ? null : (pub.allowedHostIds ?? []),
+  return toUserPublic(user);
+}
+
+export function updateUserPins(userId: string, pinnedHostIds: string[]): UserPublic | undefined {
+  const user = getUserById(userId);
+  if (!user) return undefined;
+  const allowed = new Set(listHostsForUser(userId).map((h) => h.id));
+  user.pinnedHostIds = filterValidHostIds(pinnedHostIds).filter((id) =>
+    allowed.has(id)
+  );
+  persist();
+  return toUserPublic(user);
+}
+
+export function listGroups(): AccessGroup[] {
+  return [...(store.groups ?? [])].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export function getGroup(id: string): AccessGroup | undefined {
+  return store.groups?.find((g) => g.id === id);
+}
+
+export function filterValidGroupIds(ids: string[]): string[] {
+  const known = new Set((store.groups ?? []).map((g) => g.id));
+  return ids.filter((id) => known.has(id));
+}
+
+export function createGroup(name: string, hostIds: string[]): AccessGroup {
+  const group: AccessGroup = {
+    id: uuid(),
+    name: name.trim(),
+    hostIds: filterValidHostIds(hostIds),
+    createdAt: new Date().toISOString(),
   };
+  if (!store.groups) store.groups = [];
+  store.groups.push(group);
+  persist();
+  return group;
+}
+
+export function updateGroup(
+  id: string,
+  data: { name?: string; hostIds?: string[] }
+): AccessGroup | undefined {
+  const group = store.groups?.find((g) => g.id === id);
+  if (!group) return undefined;
+  if (data.name !== undefined) group.name = data.name.trim();
+  if (data.hostIds !== undefined) group.hostIds = filterValidHostIds(data.hostIds);
+  persist();
+  return group;
+}
+
+export function deleteGroup(id: string): boolean {
+  if (!store.groups) return false;
+  const before = store.groups.length;
+  store.groups = store.groups.filter((g) => g.id !== id);
+  for (const user of store.users) {
+    if (user.groupIds?.length) {
+      user.groupIds = user.groupIds.filter((gid) => gid !== id);
+    }
+  }
+  if (store.groups.length < before) {
+    persist();
+    return true;
+  }
+  return false;
+}
+
+export function createAuthSession(
+  userId: string,
+  jti: string,
+  expiresAt: string
+): AuthSessionRow {
+  const row: AuthSessionRow = {
+    id: uuid(),
+    userId,
+    jti,
+    createdAt: new Date().toISOString(),
+    expiresAt,
+  };
+  if (!store.authSessions) store.authSessions = [];
+  store.authSessions.push(row);
+  pruneExpiredAuthSessions();
+  persist();
+  return row;
+}
+
+export function isAuthSessionValid(jti: string): boolean {
+  pruneExpiredAuthSessions();
+  const row = store.authSessions?.find((s) => s.jti === jti);
+  return !!row && !row.revoked;
+}
+
+export function revokeAuthSession(jti: string): void {
+  const row = store.authSessions?.find((s) => s.jti === jti);
+  if (row) {
+    row.revoked = true;
+    persist();
+  }
+}
+
+export function revokeAllAuthSessionsForUser(userId: string, exceptJti?: string): number {
+  let count = 0;
+  for (const row of store.authSessions ?? []) {
+    if (row.userId === userId && row.jti !== exceptJti && !row.revoked) {
+      row.revoked = true;
+      count += 1;
+    }
+  }
+  if (count) persist();
+  return count;
+}
+
+export function listAuthSessionsForUser(userId: string): AuthSessionRow[] {
+  pruneExpiredAuthSessions();
+  return (store.authSessions ?? []).filter(
+    (s) => s.userId === userId && !s.revoked
+  );
+}
+
+function pruneExpiredAuthSessions(): void {
+  if (!store.authSessions?.length) return;
+  const now = Date.now();
+  const before = store.authSessions.length;
+  store.authSessions = store.authSessions.filter((s) => {
+    if (s.revoked) return false;
+    return new Date(s.expiresAt).getTime() > now;
+  });
+  if (store.authSessions.length < before) persist();
+}
+
+export function setUserTotpPending(userId: string, encryptedSecret: string): boolean {
+  const user = getUserById(userId);
+  if (!user) return false;
+  user.totpSecret = encryptedSecret;
+  user.totpEnabled = false;
+  persist();
+  return true;
+}
+
+export function enableUserTotp(userId: string): boolean {
+  const user = getUserById(userId);
+  if (!user?.totpSecret) return false;
+  user.totpEnabled = true;
+  persist();
+  return true;
+}
+
+export function disableUserTotp(userId: string): boolean {
+  const user = getUserById(userId);
+  if (!user) return false;
+  user.totpSecret = null;
+  user.totpEnabled = false;
+  persist();
+  return true;
+}
+
+export function getUserTotpSecret(userId: string): string | null {
+  const user = getUserById(userId);
+  if (!user?.totpSecret) return null;
+  return decryptTotpSecret(user.totpSecret);
 }
 
 export function deleteUser(id: string): boolean {
   if (store.users.length <= 1) return false;
   const before = store.users.length;
   store.users = store.users.filter((u) => u.id !== id);
+  if (store.authSessions) {
+    store.authSessions = store.authSessions.filter((s) => s.userId !== id);
+  }
   if (store.users.length < before) {
     persist();
     return true;
@@ -369,6 +608,14 @@ export function deleteHost(id: string): boolean {
     if (user.allowedHostIds?.length) {
       user.allowedHostIds = user.allowedHostIds.filter((hid) => hid !== id);
     }
+    if (user.pinnedHostIds?.length) {
+      user.pinnedHostIds = user.pinnedHostIds.filter((hid) => hid !== id);
+    }
+  }
+  if (store.groups) {
+    for (const group of store.groups) {
+      group.hostIds = group.hostIds.filter((hid) => hid !== id);
+    }
   }
   if (store.hosts.length < before) {
     persist();
@@ -380,7 +627,8 @@ export function deleteHost(id: string): boolean {
 export function createSession(
   hostId: string,
   protocol: Protocol,
-  username: string | null = null
+  username: string | null = null,
+  bastionUserId: string | null = null
 ): string {
   const id = uuid();
   store.sessions.push({
@@ -388,6 +636,7 @@ export function createSession(
     hostId,
     protocol,
     username,
+    bastionUserId,
     startedAt: new Date().toISOString(),
     endedAt: null,
   });

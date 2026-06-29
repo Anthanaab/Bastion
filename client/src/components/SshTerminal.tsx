@@ -63,6 +63,8 @@ export default function SshTerminal({
     fitAddon.fit();
     termRef.current = term;
 
+    let reconnectFn: (() => void) | null = null;
+
     const publishControl = () => {
       onSessionControlRef.current?.({
         connected,
@@ -70,6 +72,8 @@ export default function SshTerminal({
           intentional = true;
           ws?.close();
         },
+        reconnect: reconnectFn ?? undefined,
+        status: connected ? "Connecté" : undefined,
       });
     };
 
@@ -114,6 +118,14 @@ export default function SshTerminal({
         openConnection();
       }, delay);
     };
+
+    const manualReconnect = () => {
+      attempt = 0;
+      intentional = false;
+      closeWs();
+      openConnection();
+    };
+    reconnectFn = manualReconnect;
 
     const openConnection = () => {
       if (cancelled || intentional) return;

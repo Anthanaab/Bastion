@@ -2,9 +2,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Layout from "../components/Layout";
 import HostCard from "../components/HostCard";
 import HostForm from "../components/HostForm";
+import StatusToast from "../components/StatusToast";
 import { useAuth } from "../context/AuthContext";
 import { api } from "../lib/api";
-import type { Host, Stats } from "../types";
+import type { Host, Stats, StatusNotification } from "../types";
 
 function Modal({
   open,
@@ -65,7 +66,7 @@ function StatCard({
 }
 
 export default function DashboardPage() {
-  const { isAdmin } = useAuth();
+  const { isAdmin, pinnedHostIds, togglePin } = useAuth();
   const [hosts, setHosts] = useState<Host[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -77,9 +78,34 @@ export default function DashboardPage() {
   const importInputRef = useRef<HTMLInputElement>(null);
   const [editingHost, setEditingHost] = useState<Host | null>(null);
   const [hostStatus, setHostStatus] = useState<Record<string, boolean>>({});
+  const [notifications, setNotifications] = useState<StatusNotification[]>([]);
+  const prevStatusRef = useRef<Record<string, boolean>>({});
 
   const refreshHostStatus = () => {
-    api.hostsStatus().then(setHostStatus).catch(() => setHostStatus({}));
+    api
+      .hostsStatus()
+      .then((next) => {
+        const hostNames = new Map(hosts.map((h) => [h.id, h.name]));
+        const prev = prevStatusRef.current;
+        const newNotifs: StatusNotification[] = [];
+        for (const [id, online] of Object.entries(next)) {
+          if (id in prev && prev[id] !== online) {
+            newNotifs.push({
+              id: `${id}-${Date.now()}`,
+              hostId: id,
+              hostName: hostNames.get(id) ?? id,
+              online,
+              at: Date.now(),
+            });
+          }
+        }
+        if (newNotifs.length) {
+          setNotifications((n) => [...newNotifs, ...n].slice(0, 5));
+        }
+        prevStatusRef.current = next;
+        setHostStatus(next);
+      })
+      .catch(() => setHostStatus({}));
   };
 
   const load = async () => {
@@ -112,17 +138,24 @@ export default function DashboardPage() {
     return [...tags].sort((a, b) => a.localeCompare(b));
   }, [hosts]);
 
-  const filtered = hosts.filter((h) => {
-    const matchSearch =
-      !search ||
-      h.name.toLowerCase().includes(search.toLowerCase()) ||
-      h.hostname.toLowerCase().includes(search.toLowerCase()) ||
-      h.tags.toLowerCase().includes(search.toLowerCase());
-    const matchFilter = filter === "all" || h.protocol === filter;
-    const hostTags = h.tags.split(",").map((t) => t.trim());
-    const matchTag = !tagFilter || hostTags.includes(tagFilter);
-    return matchSearch && matchFilter && matchTag;
-  });
+  const filtered = hosts
+    .filter((h) => {
+      const matchSearch =
+        !search ||
+        h.name.toLowerCase().includes(search.toLowerCase()) ||
+        h.hostname.toLowerCase().includes(search.toLowerCase()) ||
+        h.tags.toLowerCase().includes(search.toLowerCase());
+      const matchFilter = filter === "all" || h.protocol === filter;
+      const hostTags = h.tags.split(",").map((t) => t.trim());
+      const matchTag = !tagFilter || hostTags.includes(tagFilter);
+      return matchSearch && matchFilter && matchTag;
+    })
+    .sort((a, b) => {
+      const ap = pinnedHostIds.includes(a.id) ? 0 : 1;
+      const bp = pinnedHostIds.includes(b.id) ? 0 : 1;
+      if (ap !== bp) return ap - bp;
+      return a.name.localeCompare(b.name);
+    });
 
   const handleCreate = async (data: Partial<Host>) => {
     await api.createHost(data);
@@ -186,6 +219,12 @@ export default function DashboardPage() {
 
   return (
     <Layout title="Tableau de bord">
+      <StatusToast
+        items={notifications}
+        onDismiss={(id) =>
+          setNotifications((n) => n.filter((item) => item.id !== id))
+        }
+      />
       {stats && (
         <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4 animate-fade-in">
           <StatCard label="Machines" value={stats.totalHosts} accent="#f59e0b" />
@@ -334,6 +373,8 @@ export default function DashboardPage() {
               key={host.id}
               host={host}
               online={host.id in hostStatus ? hostStatus[host.id] : null}
+              pinned={pinnedHostIds.includes(host.id)}
+              onTogglePin={() => void togglePin(host.id)}
               onEdit={openEdit}
               onDelete={handleDelete}
               canManage={isAdmin}

@@ -35,6 +35,16 @@ export interface SessionRecord {
   durationSec: number | null;
 }
 
+export interface LiveSessionRecord {
+  sessionId: string;
+  userId: string;
+  username: string;
+  hostId: string;
+  hostName: string;
+  protocol: Protocol;
+  startedAt: string;
+}
+
 export interface AuditRecord {
   id: string;
   at: string;
@@ -56,13 +66,32 @@ export type UserRole = "admin" | "operator";
 export interface User {
   username: string;
   role: UserRole;
+  pinnedHostIds?: string[];
+  totpEnabled?: boolean;
 }
 
 export interface UserAccount {
   id: string;
   username: string;
   role: UserRole;
-  /** null = toutes les machines (opérateur sans restriction). */
   allowedHostIds: string[] | null;
+  groupIds: string[];
+  pinnedHostIds: string[];
+  totpEnabled: boolean;
   createdAt: string;
+}
+
+export interface AccessGroup {
+  id: string;
+  name: string;
+  hostIds: string[];
+  createdAt: string;
+}
+
+export interface StatusNotification {
+  id: string;
+  hostId: string;
+  hostName: string;
+  online: boolean;
+  at: number;
 }

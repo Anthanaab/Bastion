@@ -148,8 +148,17 @@ export default function SessionPage() {
             </>
           ) : (
             <span className="text-xs text-slate-500">
-              Session {host.protocol.toUpperCase()}
+              {session?.status ?? `Session ${host.protocol.toUpperCase()}`}
             </span>
+          )}
+          {!session?.connected && session?.reconnect && (
+            <button
+              type="button"
+              onClick={() => session.reconnect?.()}
+              className="btn-secondary py-2 text-xs"
+            >
+              Reconnecter
+            </button>
           )}
         </div>
       </header>

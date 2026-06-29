@@ -1,4 +1,15 @@
-const TOKEN_KEY = "bastion_token";
+import type {
+  AccessGroup,
+  AuditRecord,
+  Host,
+  HostExportBundle,
+  LiveSessionRecord,
+  SessionRecord,
+  Stats,
+  User,
+  UserAccount,
+  UserRole,
+} from "../types";
 
 export function getToken(): string | null {
   return localStorage.getItem(TOKEN_KEY);
@@ -42,67 +53,120 @@ async function request<T>(
   return res.json() as Promise<T>;
 }
 
+export type LoginResult =
+  | { requiresTotp: true; challenge: string }
+  | { token: string; user: User };
+
+const TOKEN_KEY = "bastion_token";
+
 export const api = {
-  login: (username: string, password: string) =>
-    request<{ token: string; user: import("./types").User }>("/login", {
+  login: (username: string, password: string, totp?: string) =>
+    request<LoginResult>("/login", {
       method: "POST",
-      body: JSON.stringify({ username, password }),
+      body: JSON.stringify({ username, password, totp }),
     }),
 
-  logout: () =>
-    request<{ ok: boolean }>("/logout", { method: "POST" }),
+  loginTotp: (challenge: string, code: string) =>
+    request<{ token: string; user: User }>("/login/totp", {
+      method: "POST",
+      body: JSON.stringify({ challenge, code }),
+    }),
 
-  me: () => request<{ user: import("./types").User }>("/me"),
+  logout: () => request<{ ok: boolean }>("/logout", { method: "POST" }),
 
-  users: () => request<import("./types").UserAccount[]>("/users"),
+  me: () => request<{ user: User }>("/me"),
+
+  updatePins: (pinnedHostIds: string[]) =>
+    request<{ pinnedHostIds: string[] }>("/me/pins", {
+      method: "PUT",
+      body: JSON.stringify({ pinnedHostIds }),
+    }),
+
+  totpSetup: () =>
+    request<{ secret: string; uri: string }>("/me/totp/setup", { method: "POST" }),
+
+  totpConfirm: (code: string) =>
+    request<{ ok: boolean }>("/me/totp/confirm", {
+      method: "POST",
+      body: JSON.stringify({ code }),
+    }),
+
+  totpDisable: (currentPassword: string) =>
+    request<{ ok: boolean }>("/me/totp", {
+      method: "DELETE",
+      body: JSON.stringify({ currentPassword }),
+    }),
+
+  users: () => request<UserAccount[]>("/users"),
 
   createUser: (
     username: string,
     password: string,
-    role: import("./types").UserRole,
-    allowedHostIds?: string[] | null
+    role: UserRole,
+    allowedHostIds?: string[] | null,
+    groupIds?: string[]
   ) =>
-    request<import("./types").UserAccount>("/users", {
+    request<UserAccount>("/users", {
       method: "POST",
-      body: JSON.stringify({ username, password, role, allowedHostIds }),
+      body: JSON.stringify({ username, password, role, allowedHostIds, groupIds }),
     }),
 
   updateUser: (
     id: string,
     data: {
-      role?: import("./types").UserRole;
+      role?: UserRole;
       password?: string;
       allowedHostIds?: string[] | null;
+      groupIds?: string[];
     }
   ) =>
-    request<import("./types").UserAccount>(`/users/${id}`, {
+    request<UserAccount>(`/users/${id}`, {
       method: "PUT",
       body: JSON.stringify(data),
+    }),
+
+  revokeUserSessions: (id: string) =>
+    request<{ ok: boolean; revoked: number }>(`/users/${id}/revoke-sessions`, {
+      method: "POST",
     }),
 
   deleteUser: (id: string) =>
     request<{ ok: boolean }>(`/users/${id}`, { method: "DELETE" }),
 
-  stats: () => request<import("./types").Stats>("/stats"),
+  groups: () => request<AccessGroup[]>("/groups"),
 
-  hosts: () => request<import("./types").Host[]>("/hosts"),
+  createGroup: (name: string, hostIds: string[]) =>
+    request<AccessGroup>("/groups", {
+      method: "POST",
+      body: JSON.stringify({ name, hostIds }),
+    }),
 
-  hostsStatus: () =>
-    request<Record<string, boolean>>("/hosts/status"),
+  updateGroup: (id: string, data: { name?: string; hostIds?: string[] }) =>
+    request<AccessGroup>(`/groups/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    }),
+
+  deleteGroup: (id: string) =>
+    request<{ ok: boolean }>(`/groups/${id}`, { method: "DELETE" }),
+
+  stats: () => request<Stats>("/stats"),
+
+  hosts: () => request<Host[]>("/hosts"),
+
+  hostsStatus: () => request<Record<string, boolean>>("/hosts/status"),
 
   host: (id: string) =>
-    request<import("./types").Host & { password: string; privateKey: string }>(
-      `/hosts/${id}`
-    ),
+    request<Host & { password?: string; privateKey?: string }>(`/hosts/${id}`),
 
-  createHost: (data: Partial<import("./types").Host>) =>
-    request<import("./types").Host>("/hosts", {
+  createHost: (data: Partial<Host>) =>
+    request<Host>("/hosts", {
       method: "POST",
       body: JSON.stringify(data),
     }),
 
-  updateHost: (id: string, data: Partial<import("./types").Host>) =>
-    request<import("./types").Host>(`/hosts/${id}`, {
+  updateHost: (id: string, data: Partial<Host>) =>
+    request<Host>(`/hosts/${id}`, {
       method: "PUT",
       body: JSON.stringify(data),
     }),
@@ -122,25 +186,26 @@ export const api = {
       body: JSON.stringify({ currentPassword, newPassword }),
     }),
 
-  wakeHost: (hostId: string) =>
-    request<{ ok: boolean; sentTo: string[]; hint?: string }>(
+  wakeHost: (hostId: string, wait = false) =>
+    request<{ ok: boolean; sentTo: string[]; hint?: string; online?: boolean }>(
       `/hosts/${hostId}/wake`,
-      { method: "POST" }
+      { method: "POST", body: JSON.stringify({ wait }) }
     ),
 
   sessions: (limit = 50) =>
-    request<import("./types").SessionRecord[]>(`/sessions?limit=${limit}`),
+    request<SessionRecord[]>(`/sessions?limit=${limit}`),
+
+  liveSessions: () => request<LiveSessionRecord[]>("/sessions/live"),
+
+  terminateSession: (id: string) =>
+    request<{ ok: boolean }>(`/sessions/${id}/terminate`, { method: "POST" }),
 
   audit: (limit = 100) =>
-    request<import("./types").AuditRecord[]>(`/audit?limit=${limit}`),
+    request<AuditRecord[]>(`/audit?limit=${limit}`),
 
-  exportHosts: () =>
-    request<import("./types").HostExportBundle>("/hosts/export"),
+  exportHosts: () => request<HostExportBundle>("/hosts/export"),
 
-  importHosts: (
-    mode: "merge" | "replace",
-    hosts: import("./types").HostExportBundle["hosts"]
-  ) =>
+  importHosts: (mode: "merge" | "replace", hosts: HostExportBundle["hosts"]) =>
     request<{ ok: boolean; created: number; updated: number }>("/hosts/import", {
       method: "POST",
       body: JSON.stringify({ mode, hosts }),
@@ -154,7 +219,6 @@ export function wsBaseUrl(path: string): string {
 
 export function wsConnectData(params: Record<string, string>): string {
   const qs = new URLSearchParams(params);
-  // WebSocket ne supporte pas Authorization — cookie ou ?token= requis (Guacamole).
   const token = getToken();
   if (token) qs.set("token", token);
   return qs.toString();

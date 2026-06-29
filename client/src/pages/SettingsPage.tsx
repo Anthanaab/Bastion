@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import Layout from "../components/Layout";
+import GroupsPanel from "../components/GroupsPanel";
 import { useAuth } from "../context/AuthContext";
 import { api } from "../lib/api";
-import type { Host, UserAccount, UserRole } from "../types";
+import type { AccessGroup, Host, UserAccount, UserRole } from "../types";
 
 function accessSummary(allowed: string[] | null, totalHosts: number): string {
   if (allowed === null) return "Toutes les machines";
@@ -13,15 +14,20 @@ function accessSummary(allowed: string[] | null, totalHosts: number): string {
 function OperatorHostAccess({
   user,
   hosts,
+  groups,
   onSaved,
 }: {
   user: UserAccount;
   hosts: Host[];
+  groups: AccessGroup[];
   onSaved: () => void;
 }) {
   const [allAccess, setAllAccess] = useState(user.allowedHostIds === null);
   const [selected, setSelected] = useState<Set<string>>(
     () => new Set(user.allowedHostIds ?? [])
+  );
+  const [groupIds, setGroupIds] = useState<Set<string>>(
+    () => new Set(user.groupIds ?? [])
   );
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState("");
@@ -29,7 +35,8 @@ function OperatorHostAccess({
   useEffect(() => {
     setAllAccess(user.allowedHostIds === null);
     setSelected(new Set(user.allowedHostIds ?? []));
-  }, [user.allowedHostIds, user.id]);
+    setGroupIds(new Set(user.groupIds ?? []));
+  }, [user.allowedHostIds, user.groupIds, user.id]);
 
   const toggleHost = (hostId: string) => {
     setSelected((prev) => {
@@ -46,6 +53,7 @@ function OperatorHostAccess({
     try {
       await api.updateUser(user.id, {
         allowedHostIds: allAccess ? null : [...selected],
+        groupIds: [...groupIds],
       });
       setMsg("Accès enregistré");
       onSaved();
@@ -78,6 +86,30 @@ function OperatorHostAccess({
         />
         Accès à toutes les machines
       </label>
+      {!allAccess && groups.length > 0 && (
+        <div className="mb-3">
+          <p className="mb-1 text-xs text-slate-500">Groupes</p>
+          <div className="space-y-1">
+            {groups.map((g) => (
+              <label key={g.id} className="flex items-center gap-2 text-sm text-slate-400">
+                <input
+                  type="checkbox"
+                  checked={groupIds.has(g.id)}
+                  onChange={() =>
+                    setGroupIds((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(g.id)) next.delete(g.id);
+                      else next.add(g.id);
+                      return next;
+                    })
+                  }
+                />
+                {g.name} ({g.hostIds.length})
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
       {!allAccess && (
         <div className="mb-3 max-h-40 space-y-1 overflow-y-auto">
           {hosts.map((host) => (
@@ -162,6 +194,94 @@ function CreateUserHostAccess({
   );
 }
 
+function TotpSettings() {
+  const { user, refreshMe } = useAuth();
+  const [setup, setSetup] = useState<{ secret: string; uri: string } | null>(null);
+  const [code, setCode] = useState("");
+  const [password, setPassword] = useState("");
+  const [msg, setMsg] = useState("");
+
+  if (!user) return null;
+
+  const startSetup = async () => {
+    setMsg("");
+    try {
+      setSetup(await api.totpSetup());
+    } catch (err) {
+      setMsg(err instanceof Error ? err.message : "Erreur");
+    }
+  };
+
+  const confirm = async () => {
+    setMsg("");
+    try {
+      await api.totpConfirm(code);
+      setSetup(null);
+      setCode("");
+      setMsg("2FA activée");
+      await refreshMe();
+    } catch (err) {
+      setMsg(err instanceof Error ? err.message : "Erreur");
+    }
+  };
+
+  const disable = async () => {
+    setMsg("");
+    try {
+      await api.totpDisable(password);
+      setPassword("");
+      setMsg("2FA désactivée");
+      await refreshMe();
+    } catch (err) {
+      setMsg(err instanceof Error ? err.message : "Erreur");
+    }
+  };
+
+  return (
+    <div className="glass-card p-6">
+      <h2 className="mb-1 text-lg font-semibold text-white">
+        Authentification à deux facteurs (2FA)
+      </h2>
+      <p className="mb-4 text-sm text-slate-400">
+        Protégez votre compte avec une application Authenticator.
+      </p>
+      {msg && <p className="mb-3 text-sm text-bastion-glow">{msg}</p>}
+      {user.totpEnabled ? (
+        <div className="space-y-3">
+          <p className="text-sm text-emerald-400">2FA activée sur ce compte.</p>
+          <input
+            type="password"
+            className="input-field"
+            placeholder="Mot de passe actuel pour désactiver"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+          <button type="button" onClick={() => void disable()} className="btn-secondary">
+            Désactiver la 2FA
+          </button>
+        </div>
+      ) : setup ? (
+        <div className="space-y-3">
+          <p className="break-all font-mono text-xs text-slate-400">{setup.uri}</p>
+          <input
+            className="input-field font-mono"
+            placeholder="Code à 6 chiffres"
+            value={code}
+            onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+          />
+          <button type="button" onClick={() => void confirm()} className="btn-primary">
+            Confirmer
+          </button>
+        </div>
+      ) : (
+        <button type="button" onClick={() => void startSetup()} className="btn-primary">
+          Configurer la 2FA
+        </button>
+      )}
+    </div>
+  );
+}
+
 export default function SettingsPage() {
   const { isAdmin } = useAuth();
   const [currentPassword, setCurrentPassword] = useState("");
@@ -173,6 +293,7 @@ export default function SettingsPage() {
 
   const [users, setUsers] = useState<UserAccount[]>([]);
   const [hosts, setHosts] = useState<Host[]>([]);
+  const [groups, setGroups] = useState<AccessGroup[]>([]);
   const [usersLoading, setUsersLoading] = useState(false);
   const [newUsername, setNewUsername] = useState("");
   const [newUserPassword, setNewUserPassword] = useState("");
@@ -185,9 +306,14 @@ export default function SettingsPage() {
     if (!isAdmin) return;
     setUsersLoading(true);
     try {
-      const [userList, hostList] = await Promise.all([api.users(), api.hosts()]);
+      const [userList, hostList, groupList] = await Promise.all([
+        api.users(),
+        api.hosts(),
+        api.groups(),
+      ]);
       setUsers(userList);
       setHosts(hostList);
+      setGroups(groupList);
     } finally {
       setUsersLoading(false);
     }
@@ -360,6 +486,8 @@ export default function SettingsPage() {
         </div>
 
         {isAdmin && (
+          <>
+          <GroupsPanel />
           <div className="glass-card p-6">
             <h2 className="mb-1 text-lg font-semibold text-white">
               Utilisateurs
@@ -414,6 +542,7 @@ export default function SettingsPage() {
                       <OperatorHostAccess
                         user={user}
                         hosts={hosts}
+                        groups={groups}
                         onSaved={() => void loadUsers()}
                       />
                     )}
@@ -470,7 +599,10 @@ export default function SettingsPage() {
               </button>
             </form>
           </div>
+          </>
         )}
+
+        <TotpSettings />
       </div>
     </Layout>
   );

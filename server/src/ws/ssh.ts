@@ -2,6 +2,7 @@ import type { IncomingMessage } from "http";
 import { Client } from "ssh2";
 import { WebSocket } from "ws";
 import { getHost, createSession, endSession, getSession, canUserAccessHost } from "../db";
+import { registerLiveSession, unregisterLiveSession } from "../session-registry";
 import { wsAuthFromRequest } from "../auth";
 import { attachWsKeepAlive } from "./ws-keepalive";
 import { verifySshHostKey } from "../ssh-known-hosts";
@@ -37,7 +38,17 @@ export function handleSshConnection(ws: WebSocket, request: IncomingMessage): vo
     return;
   }
 
-  const sessionId = createSession(hostId, "ssh", user.username);
+  const sessionId = createSession(hostId, "ssh", user.username, user.userId);
+  registerLiveSession({
+    sessionId,
+    userId: user.userId,
+    username: user.username,
+    hostId: host.id,
+    hostName: host.name,
+    protocol: "ssh",
+    startedAt: new Date().toISOString(),
+    ws,
+  });
   logAudit(user.username, "session.start", `SSH → ${host.name}`, {
     hostId: host.id,
     hostName: host.name,
@@ -61,6 +72,7 @@ export function handleSshConnection(ws: WebSocket, request: IncomingMessage): vo
       });
     }
     endSession(sessionId);
+    unregisterLiveSession(sessionId);
     try {
       conn.end();
     } catch {

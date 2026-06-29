@@ -5,29 +5,59 @@ import { v4 as uuid } from "uuid";
 import {
   canUserAccessHost,
   filterValidHostIds,
+  createGroup,
   createHost,
   createUser,
+  deleteGroup,
   deleteHost,
   deleteUser,
+  disableUserTotp,
+  enableUserTotp,
   exportHostsBundle,
   findUserByUsername,
+  getGroup,
   getHost,
   getStats,
+  getUserById,
+  getUserTotpSecret,
   importHosts,
+  listGroups,
   listHostsForUser,
   listSessions,
   listUsers,
+  revokeAllAuthSessionsForUser,
+  setUserTotpPending,
+  updateGroup,
   updateHost,
   updateUser,
   updateUserPassword,
+  updateUserPins,
   type Protocol,
   type Host,
 } from "../db";
-import { logAudit, listAudit } from "../audit";
-import { adminMiddleware, authMiddleware, signToken } from "../auth";
+import { logAudit, listAudit, listAuditForUser } from "../audit";
+import {
+  adminMiddleware,
+  authMiddleware,
+  issueLoginToken,
+  revokeCurrentToken,
+  signTotpChallenge,
+  verifyTotpChallenge,
+} from "../auth";
 import { probeTcp } from "../probe";
 import { isValidMac, wakeHost } from "../wol";
 import { loginRateLimit } from "../middleware/rate-limit";
+import {
+  encryptTotpSecret,
+  generateTotpSecret,
+  totpKeyUri,
+  verifyTotpToken,
+} from "../totp";
+import {
+  listLiveSessions,
+  terminateLiveSession,
+} from "../session-registry";
+import { endSession } from "../db";
 
 function maskHostSecrets(host: Host): Host {
   return {
@@ -42,6 +72,12 @@ const router = Router();
 const loginSchema = z.object({
   username: z.string().min(1),
   password: z.string().min(1),
+  totp: z.string().length(6).optional(),
+});
+
+const totpLoginSchema = z.object({
+  challenge: z.string().min(1),
+  code: z.string().length(6),
 });
 
 const passwordChangeSchema = z.object({
@@ -104,13 +140,51 @@ const createUserSchema = z.object({
   password: z.string().min(8).max(128),
   role: z.enum(["admin", "operator"]).default("operator"),
   allowedHostIds: z.array(z.string().uuid()).nullable().optional(),
+  groupIds: z.array(z.string().uuid()).optional(),
 });
 
 const updateUserSchema = z.object({
   role: z.enum(["admin", "operator"]).optional(),
   password: z.string().min(8).max(128).optional(),
   allowedHostIds: z.array(z.string().uuid()).nullable().optional(),
+  groupIds: z.array(z.string().uuid()).optional(),
 });
+
+const groupSchema = z.object({
+  name: z.string().min(1).max(64),
+  hostIds: z.array(z.string().uuid()).default([]),
+});
+
+const pinsSchema = z.object({
+  pinnedHostIds: z.array(z.string().uuid()),
+});
+
+function setAuthCookie(res: import("express").Response, token: string): void {
+  res.cookie("bastion_token", token, {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.BASTION_COOKIE_SECURE === "true",
+    maxAge: 7 * 24 * 60 * 60 * 1000,
+  });
+}
+
+function loginResponse(
+  res: import("express").Response,
+  user: { id: string; username: string; role: import("../db").UserRole }
+) {
+  const token = issueLoginToken(user);
+  setAuthCookie(res, token);
+  const full = getUserById(user.id);
+  res.json({
+    token,
+    user: {
+      username: user.username,
+      role: user.role,
+      pinnedHostIds: full?.pinnedHostIds ?? [],
+      totpEnabled: !!full?.totpEnabled,
+    },
+  });
+}
 
 router.post("/login", loginRateLimit, (req, res) => {
   const parsed = loginSchema.safeParse(req.body);
@@ -125,33 +199,80 @@ router.post("/login", loginRateLimit, (req, res) => {
     return;
   }
 
-  const token = signToken({
-    userId: user.id,
-    username: user.username,
-    role: user.role,
-  });
+  if (user.totpEnabled) {
+    if (!parsed.data.totp) {
+      res.json({
+        requiresTotp: true,
+        challenge: signTotpChallenge(user.id),
+      });
+      return;
+    }
+    const secret = getUserTotpSecret(user.id);
+    if (!secret || !verifyTotpToken(secret, parsed.data.totp)) {
+      res.status(401).json({ error: "Code 2FA invalide" });
+      return;
+    }
+  }
+
   logAudit(user.username, "login", "Connexion réussie");
-  res.cookie("bastion_token", token, {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.BASTION_COOKIE_SECURE === "true",
-    maxAge: 7 * 24 * 60 * 60 * 1000,
-  });
-  res.json({
-    token,
-    user: { username: user.username, role: user.role },
-  });
+  loginResponse(res, user);
 });
 
-router.post("/logout", (_req, res) => {
+router.post("/login/totp", loginRateLimit, (req, res) => {
+  const parsed = totpLoginSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Code 2FA requis" });
+    return;
+  }
+  const challenge = verifyTotpChallenge(parsed.data.challenge);
+  if (!challenge) {
+    res.status(401).json({ error: "Challenge expiré — reconnectez-vous" });
+    return;
+  }
+  const user = getUserById(challenge.userId);
+  if (!user?.totpEnabled) {
+    res.status(401).json({ error: "2FA non activée" });
+    return;
+  }
+  const secret = getUserTotpSecret(user.id);
+  if (!secret || !verifyTotpToken(secret, parsed.data.code)) {
+    res.status(401).json({ error: "Code 2FA invalide" });
+    return;
+  }
+  logAudit(user.username, "login", "Connexion réussie (2FA)");
+  loginResponse(res, user);
+});
+
+router.post("/logout", authMiddleware, (req, res) => {
+  if (req.user?.jti) revokeCurrentToken(req.user.jti);
   res.clearCookie("bastion_token");
   res.json({ ok: true });
 });
 
 router.get("/me", authMiddleware, (req, res) => {
+  const user = getUserById(req.user!.userId);
   res.json({
-    user: { username: req.user!.username, role: req.user!.role },
+    user: {
+      username: req.user!.username,
+      role: req.user!.role,
+      pinnedHostIds: user?.pinnedHostIds ?? [],
+      totpEnabled: !!user?.totpEnabled,
+    },
   });
+});
+
+router.put("/me/pins", authMiddleware, (req, res) => {
+  const parsed = pinsSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Liste de favoris invalide" });
+    return;
+  }
+  const user = updateUserPins(req.user!.userId, parsed.data.pinnedHostIds);
+  if (!user) {
+    res.status(404).json({ error: "Utilisateur introuvable" });
+    return;
+  }
+  res.json({ pinnedHostIds: user.pinnedHostIds });
 });
 
 router.get("/users", authMiddleware, adminMiddleware, (_req, res) => {
@@ -180,7 +301,8 @@ router.post("/users", authMiddleware, adminMiddleware, (req, res) => {
     parsed.data.username,
     parsed.data.password,
     parsed.data.role,
-    allowedHostIds
+    allowedHostIds,
+    parsed.data.groupIds
   );
   logAudit(req.user!.username, "user.create", `Utilisateur créé : ${user.username}`, {
     meta: { role: user.role },
@@ -194,9 +316,12 @@ router.put("/users/:id", authMiddleware, adminMiddleware, (req, res) => {
     !parsed.success ||
     (!parsed.data.role &&
       !parsed.data.password &&
-      parsed.data.allowedHostIds === undefined)
+      parsed.data.allowedHostIds === undefined &&
+      parsed.data.groupIds === undefined)
   ) {
-    res.status(400).json({ error: "Rôle, mot de passe ou machines autorisées requis" });
+    res.status(400).json({
+      error: "Rôle, mot de passe, groupes ou machines autorisées requis",
+    });
     return;
   }
   if (req.params.id === req.user!.userId && parsed.data.role === "operator") {
@@ -353,20 +478,164 @@ router.get("/audit", authMiddleware, (req, res) => {
     500,
     Math.max(1, parseInt(String(req.query.limit ?? "100"), 10) || 100)
   );
-  res.json(listAudit(limit));
+  if (req.user!.role === "admin") {
+    res.json(listAudit(limit));
+    return;
+  }
+  const allowed = new Set(listHostsForUser(req.user!.userId).map((h) => h.id));
+  res.json(listAuditForUser(req.user!.username, allowed, limit));
 });
 
-router.get("/hosts/:id", authMiddleware, adminMiddleware, (req, res) => {
+router.get("/groups", authMiddleware, adminMiddleware, (_req, res) => {
+  res.json(listGroups());
+});
+
+router.post("/groups", authMiddleware, adminMiddleware, (req, res) => {
+  const parsed = groupSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Données groupe invalides" });
+    return;
+  }
+  const group = createGroup(parsed.data.name, parsed.data.hostIds);
+  logAudit(req.user!.username, "group.create", `Groupe créé : ${group.name}`);
+  res.status(201).json(group);
+});
+
+router.put("/groups/:id", authMiddleware, adminMiddleware, (req, res) => {
+  const parsed = groupSchema.partial().safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Données groupe invalides" });
+    return;
+  }
+  const group = updateGroup(req.params.id, parsed.data);
+  if (!group) {
+    res.status(404).json({ error: "Groupe introuvable" });
+    return;
+  }
+  logAudit(req.user!.username, "group.update", `Groupe modifié : ${group.name}`);
+  res.json(group);
+});
+
+router.delete("/groups/:id", authMiddleware, adminMiddleware, (req, res) => {
+  const existing = getGroup(req.params.id);
+  const ok = deleteGroup(req.params.id);
+  if (!ok) {
+    res.status(404).json({ error: "Groupe introuvable" });
+    return;
+  }
+  if (existing) {
+    logAudit(req.user!.username, "group.delete", `Groupe supprimé : ${existing.name}`);
+  }
+  res.json({ ok: true });
+});
+
+router.get("/sessions/live", authMiddleware, adminMiddleware, (_req, res) => {
+  res.json(listLiveSessions());
+});
+
+router.post(
+  "/sessions/:id/terminate",
+  authMiddleware,
+  adminMiddleware,
+  (req, res) => {
+    const ok = terminateLiveSession(req.params.id);
+    if (!ok) {
+      res.status(404).json({ error: "Session active introuvable" });
+      return;
+    }
+    endSession(req.params.id);
+    logAudit(req.user!.username, "session.terminate", `Session terminée : ${req.params.id}`);
+    res.json({ ok: true });
+  }
+);
+
+router.post(
+  "/users/:id/revoke-sessions",
+  authMiddleware,
+  adminMiddleware,
+  (req, res) => {
+    const live = listLiveSessions().filter((s) => s.userId === req.params.id);
+    for (const s of live) {
+      terminateLiveSession(s.sessionId);
+      endSession(s.sessionId);
+    }
+    const count = revokeAllAuthSessionsForUser(req.params.id);
+    const target = getUserById(req.params.id);
+    if (target) {
+      logAudit(
+        req.user!.username,
+        "auth.revoke",
+        `Sessions révoquées : ${target.username}`,
+        { meta: { count: String(count) } }
+      );
+    }
+    res.json({ ok: true, revoked: count });
+  }
+);
+
+router.post("/me/totp/setup", authMiddleware, (req, res) => {
+  const user = getUserById(req.user!.userId);
+  if (!user) {
+    res.status(404).json({ error: "Utilisateur introuvable" });
+    return;
+  }
+  const secret = generateTotpSecret();
+  setUserTotpPending(user.id, encryptTotpSecret(secret));
+  res.json({
+    secret,
+    uri: totpKeyUri(user.username, secret),
+  });
+});
+
+router.post("/me/totp/confirm", authMiddleware, (req, res) => {
+  const code = String(req.body?.code ?? "");
+  const secret = getUserTotpSecret(req.user!.userId);
+  if (!secret || !verifyTotpToken(secret, code)) {
+    res.status(400).json({ error: "Code 2FA invalide" });
+    return;
+  }
+  enableUserTotp(req.user!.userId);
+  logAudit(req.user!.username, "totp.enable", "2FA activée");
+  res.json({ ok: true });
+});
+
+router.delete("/me/totp", authMiddleware, (req, res) => {
+  const parsed = passwordChangeSchema
+    .pick({ currentPassword: true })
+    .safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Mot de passe actuel requis" });
+    return;
+  }
+  const user = findUserByUsername(req.user!.username);
+  if (!user || !bcrypt.compareSync(parsed.data.currentPassword, user.passwordHash)) {
+    res.status(401).json({ error: "Mot de passe actuel incorrect" });
+    return;
+  }
+  disableUserTotp(user.id);
+  logAudit(req.user!.username, "totp.disable", "2FA désactivée");
+  res.json({ ok: true });
+});
+
+router.get("/hosts/:id", authMiddleware, (req, res) => {
   const host = getHost(req.params.id);
   if (!host) {
     res.status(404).json({ error: "Hôte introuvable" });
     return;
   }
-  res.json({
-    ...host,
-    password: host.password ?? "",
-    privateKey: host.privateKey ?? "",
-  });
+  if (!canUserAccessHost(req.user!.userId, host.id)) {
+    res.status(403).json({ error: "Accès à cette machine non autorisé" });
+    return;
+  }
+  if (req.user!.role === "admin") {
+    res.json({
+      ...host,
+      password: host.password ?? "",
+      privateKey: host.privateKey ?? "",
+    });
+    return;
+  }
+  res.json(maskHostSecrets(host));
 });
 
 router.post("/hosts", authMiddleware, adminMiddleware, (req, res) => {
@@ -467,7 +736,18 @@ router.post("/hosts/:id/wake", authMiddleware, async (req, res) => {
       hostId: host.id,
       hostName: host.name,
     });
-    res.json({ ok: true, sentTo: result.sentTo, hint: result.hint });
+
+    const wait = req.body?.wait === true;
+    let online = false;
+    if (wait) {
+      for (let i = 0; i < 60; i++) {
+        online = await probeTcp(host.hostname, host.port);
+        if (online) break;
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+    }
+
+    res.json({ ok: true, sentTo: result.sentTo, hint: result.hint, online });
   } catch (err) {
     const message =
       err instanceof Error ? err.message : "Échec Wake-on-LAN";
@@ -488,7 +768,7 @@ router.post("/sessions/ping", authMiddleware, (req, res) => {
   );
   res.json({
     ok: true,
-    version: "1.7.0",
+    version: "1.8.0",
     host: host
       ? { id: host.id, name: host.name, protocol: host.protocol }
       : null,

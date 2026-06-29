@@ -7,6 +7,8 @@ export interface RdpTools {
 
 export interface SessionControl {
   connected: boolean;
+  status?: string;
   disconnect: () => void;
+  reconnect?: () => void;
   rdp?: RdpTools;
 }

@@ -1,6 +1,8 @@
 # Bastion — Passerelle d'accès distant
 
-Interface web moderne pour se connecter à vos machines en **SSH**, **RDP** et **VNC** depuis un navigateur.
+Interface web pour se connecter à vos machines en **SSH**, **RDP** et **VNC** depuis un navigateur.
+
+**Version actuelle : 1.8.0**
 
 ## Démarrage rapide (Docker)
 
@@ -13,56 +15,84 @@ docker compose up -d --build
 
 Ouvrez **http://localhost:3000** — identifiants par défaut : `admin` / `admin`
 
-## Développement local
-
-```bash
-npm install
-cp .env.example .env
-
-# Terminal 1 — lancez guacd (nécessaire pour RDP/VNC)
-docker run -d --name guacd -p 4822:4822 guacamole/guacd:1.6.0
-
-# Terminal 2
-npm run dev
-```
-
-- Frontend : http://localhost:5173
-- Backend : http://localhost:3000
-
 ## Fonctionnalités
 
-- Tableau de bord avec recherche et filtres par protocole
-- Terminal SSH intégré (xterm.js)
+### Connexions
+- Terminal SSH (xterm.js)
 - Bureau distant RDP/VNC via guacd
-- Gestion des hôtes (tags, couleurs, clés SSH, Wake-on-LAN)
-- Changement de mot de passe admin
-- Statut en ligne/hors ligne des machines (test TCP)
+- Reconnexion automatique (RDP/VNC/SSH) avec backoff
 - Outils RDP : plein écran, Ctrl+Alt+Suppr, presse-papiers
-- Authentification JWT + cookie sécurisé
-- Persistance JSON locale, sans base de données externe
 
-## Sécurité
+### Gestion des machines
+- Tableau de bord : recherche, filtres protocole/tags
+- Statut en ligne/hors ligne (polling 10 s) + notifications
+- Favoris (machines épinglées)
+- Wake-on-LAN intelligent (attente mise en ligne)
+- Import / export JSON des hôtes
 
-> Ne exposez pas Bastion directement sur Internet sans protection.
+### Multi-utilisateur (v1.6+)
+- Rôles **admin** / **opérateur**
+- Accès par machine et par **groupes** réutilisables
+- Journal d'audit filtré pour les opérateurs
 
-- Changez `JWT_SECRET`, `BASTION_ENCRYPTION_KEY` et le mot de passe admin
-- Passez par un VPN (Tailscale, WireGuard) ou un reverse proxy HTTPS
-- Limitez l'accès réseau au conteneur
-- Relais WoL protégé par `WOL_RELAY_SECRET` (défaut : même valeur que `JWT_SECRET`)
-- Clés SSH vérifiées au premier contact (TOFU) — fichier `ssh-known-hosts.json`
-- Rate limit sur `/login` (10 tentatives / 15 min par IP)
-- JWT WebSocket via cookie uniquement (plus dans l'URL)
+### Sécurité
+- JWT + sessions révocables (déconnexion forcée admin)
+- 2FA TOTP (Google Authenticator, etc.)
+- Chiffrement AES des identifiants hôtes
+- Rate limit login, SSH TOFU, relais WoL authentifié
 
-### Wake-on-LAN
+### Activité
+- Historique des sessions
+- Sessions distantes actives (admin) + coupure à distance
+- Journal d'audit
 
-Avec Docker, un simple **Pull and redeploy** suffit : la stack inclut un petit service `wol-relay` (réseau host) qui envoie les paquets magiques sur le LAN. Aucune config Portainer supplémentaire.
+### Ops
+- Healthcheck Docker (`/api/health`)
+- Sauvegarde auto de `bastion.json` (toutes les 6 h, 14 rotations)
 
-1. Renseignez la **MAC** de la machine (et optionnellement le broadcast, ex. `192.168.50.255`)
-2. Cliquez sur **Réveiller**
+## HTTPS avec Traefik
 
-**Côté PC cible** : WoL activé dans le BIOS, et dans Windows → carte réseau → « Autoriser ce périphérique à réveiller l’ordinateur » + « Magic Packet ».
+Exemple de labels (adapter le domaine) :
 
-Hors Docker (`npm run dev`), les paquets sont envoyés directement — pas besoin du relais.
+```yaml
+labels:
+  - traefik.enable=true
+  - traefik.http.routers.bastion.rule=Host(`bastion.example.com`)
+  - traefik.http.routers.bastion.entrypoints=websecure
+  - traefik.http.routers.bastion.tls.certresolver=letsencrypt
+  - traefik.http.services.bastion.loadbalancer.server.port=3000
+```
+
+Variables à activer :
+
+```env
+BASTION_COOKIE_SECURE=true
+BASTION_CORS_ORIGIN=https://bastion.example.com
+```
+
+Les WebSockets (`/ws/ssh`, `/ws/guacd`) doivent passer par le même routeur Traefik.
+
+> Le token JWT est aussi passé en `?token=` sur les WebSockets Guacamole. Utilisez HTTPS en production.
+
+## Wake-on-LAN
+
+1. Renseignez la **MAC** (broadcast optionnel, ex. `192.168.50.255`)
+2. Cliquez **Réveiller** — Bastion attend jusqu'à 2 min que la machine réponde
+
+Avec Docker, le service `wol-relay` (réseau host) envoie les paquets sur le LAN.
+
+## Variables d'environnement
+
+| Variable | Description | Défaut |
+|----------|-------------|--------|
+| `PORT` | Port HTTP | `3000` |
+| `JWT_SECRET` | Secret JWT (16+ car.) | *(obligatoire en prod)* |
+| `BASTION_ENCRYPTION_KEY` | Clé AES-256 hôtes (64 hex) | dérivée de `JWT_SECRET` |
+| `BASTION_COOKIE_SECURE` | Cookie HTTPS only | `false` |
+| `BASTION_CORS_ORIGIN` | Origines CORS (virgules) | toutes |
+| `BASTION_ADMIN_USER` / `BASTION_ADMIN_PASSWORD` | Compte initial | `admin` / `admin` |
+| `WOL_RELAY_URL` / `WOL_RELAY_SECRET` | Relais WoL | voir `.env.example` |
+| `DATABASE_PATH` | Fichier JSON | `/app/data/bastion.json` |
 
 ## Architecture
 
@@ -72,21 +102,11 @@ Navigateur ──► Bastion (Node.js) ──► SSH direct
                     └── WebSocket ──► guacd ──► RDP / VNC
 ```
 
-## Variables d'environnement
+## Changelog récent
 
-| Variable | Description | Défaut |
-|----------|-------------|--------|
-| `PORT` | Port HTTP | `3000` |
-| `JWT_SECRET` | Secret de signature JWT | *(obligatoire en prod)* |
-| `BASTION_ENCRYPTION_KEY` | Clé AES-256 pour mots de passe hôtes (64 hex) | dérivée de `JWT_SECRET` |
-| `BASTION_WOL_BROADCAST` | Adresse broadcast pour Wake-on-LAN | auto (255.255.255.255 + sous-réseau) |
-| `WOL_RELAY_URL` | URL du relais WoL (Docker) | `http://host.docker.internal:9877` |
-| `WOL_RELAY_SECRET` | Secret relais WoL | `JWT_SECRET` |
-| `BASTION_CORS_ORIGIN` | Origines CORS autorisées (virgules) | toutes |
-| `BASTION_SSH_STRICT_HOST_KEY` | Vérification clé SSH (TOFU) | `true` |
-| `BASTION_RDP_IGNORE_CERT` | Ignorer certificats RDP | `true` |
-| `BASTION_ADMIN_USER` | Utilisateur admin initial | `admin` |
-| `BASTION_ADMIN_PASSWORD` | Mot de passe admin initial | `admin` |
-| `GUACD_HOST` | Hôte guacd | `guacd` |
-| `GUACD_PORT` | Port guacd | `4822` |
-| `DATABASE_PATH` | Fichier de données JSON | `./data/bastion.json` |
+| Version | Highlights |
+|---------|------------|
+| **1.8.0** | Groupes d'accès, 2FA, favoris, notifs statut, WoL intelligent, sessions live, sauvegarde auto |
+| **1.7.0** | Accès par machine pour opérateurs |
+| **1.6.0** | Multi-user, reconnexion auto, polling statut |
+| **1.5.0** | Historique sessions, audit, import/export |

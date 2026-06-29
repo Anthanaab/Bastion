@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import Layout from "../components/Layout";
+import { useAuth } from "../context/AuthContext";
 import { api } from "../lib/api";
-import type { AuditRecord, Protocol, SessionRecord } from "../types";
+import type { AuditRecord, LiveSessionRecord, Protocol, SessionRecord } from "../types";
 import { ProtocolBadge } from "../components/ProtocolBadge";
 
 function formatWhen(iso: string): string {
@@ -37,13 +38,22 @@ function actionLabel(action: string): string {
     "user.create": "Utilisateur créé",
     "user.update": "Utilisateur modifié",
     "user.delete": "Utilisateur supprimé",
+    "group.create": "Groupe créé",
+    "group.update": "Groupe modifié",
+    "group.delete": "Groupe supprimé",
+    "totp.enable": "2FA activée",
+    "totp.disable": "2FA désactivée",
+    "session.terminate": "Session coupée",
+    "auth.revoke": "Sessions révoquées",
   };
   return labels[action] ?? action;
 }
 
 export default function ActivityPage() {
-  const [tab, setTab] = useState<"sessions" | "audit">("sessions");
+  const { isAdmin } = useAuth();
+  const [tab, setTab] = useState<"sessions" | "live" | "audit">("sessions");
   const [sessions, setSessions] = useState<SessionRecord[]>([]);
+  const [live, setLive] = useState<LiveSessionRecord[]>([]);
   const [audit, setAudit] = useState<AuditRecord[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -51,6 +61,9 @@ export default function ActivityPage() {
     const [s, a] = await Promise.all([api.sessions(80), api.audit(120)]);
     setSessions(s);
     setAudit(a);
+    if (isAdmin) {
+      setLive(await api.liveSessions());
+    }
   };
 
   useEffect(() => {
@@ -65,7 +78,8 @@ export default function ActivityPage() {
         <div className="flex rounded-lg border border-bastion-600 bg-bastion-900 p-1">
           {(
             [
-              ["sessions", "Historique sessions"],
+              ["sessions", "Historique"],
+              ...(isAdmin ? ([["live", "Sessions actives"]] as const) : []),
               ["audit", "Journal d'audit"],
             ] as const
           ).map(([key, label]) => (
@@ -90,6 +104,47 @@ export default function ActivityPage() {
       {loading ? (
         <div className="flex justify-center py-20">
           <div className="h-8 w-8 animate-spin rounded-full border-2 border-bastion-accent border-t-transparent" />
+        </div>
+      ) : tab === "live" && isAdmin ? (
+        <div className="glass-card overflow-hidden">
+          {live.length === 0 ? (
+            <p className="p-8 text-center text-sm text-slate-400">
+              Aucune session distante active.
+            </p>
+          ) : (
+            <table className="w-full text-left text-sm">
+              <thead className="border-b border-bastion-700 bg-bastion-900/50 text-xs uppercase text-slate-500">
+                <tr>
+                  <th className="px-4 py-3">Machine</th>
+                  <th className="px-4 py-3">Utilisateur</th>
+                  <th className="px-4 py-3">Protocole</th>
+                  <th className="px-4 py-3" />
+                </tr>
+              </thead>
+              <tbody>
+                {live.map((row) => (
+                  <tr key={row.sessionId} className="border-b border-bastion-800/80">
+                    <td className="px-4 py-3 text-white">{row.hostName}</td>
+                    <td className="px-4 py-3 text-slate-400">{row.username}</td>
+                    <td className="px-4 py-3">
+                      <ProtocolBadge protocol={row.protocol} />
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <button
+                        type="button"
+                        className="btn-secondary text-xs text-red-400"
+                        onClick={() =>
+                          api.terminateSession(row.sessionId).then(() => load())
+                        }
+                      >
+                        Couper
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
       ) : tab === "sessions" ? (
         <div className="glass-card overflow-hidden">

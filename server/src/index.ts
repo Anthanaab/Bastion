@@ -10,6 +10,7 @@ import {
   initDatabase,
   ensureAdminUser,
 } from "./db";
+import { initBackup } from "./backup";
 import { initSshKnownHosts } from "./ssh-known-hosts";
 import apiRouter from "./routes/api";
 import { handleSshConnection } from "./ws/ssh";
@@ -38,6 +39,7 @@ const ADMIN_USER = process.env.BASTION_ADMIN_USER ?? "admin";
 const ADMIN_PASSWORD = process.env.BASTION_ADMIN_PASSWORD ?? "admin";
 
 initDatabase(DATABASE_PATH);
+initBackup(DATABASE_PATH);
 initSshKnownHosts(DATABASE_PATH);
 ensureAdminUser(ADMIN_USER, ADMIN_PASSWORD);
 
@@ -74,7 +76,7 @@ app.get("/api/health", (_req, res) => {
   res.json({
     status: "ok",
     name: "Bastion",
-    version: "1.7.0",
+    version: "1.8.0",
   });
 });
 
@@ -133,7 +135,7 @@ server.listen(PORT, "0.0.0.0", () => {
   ║   Passerelle d'accès distant         ║
   ╠══════════════════════════════════════╣
   ║  http://localhost:${String(PORT).padEnd(19)}║
-  ║  Version : 1.7.0${" ".repeat(22)}║
+  ║  Version : 1.8.0${" ".repeat(22)}║
   ║  Admin : ${ADMIN_USER.padEnd(27)}║
   ╚══════════════════════════════════════╝
   `);

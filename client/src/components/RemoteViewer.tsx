@@ -186,6 +186,7 @@ export default function RemoteViewer({
             intentional = true;
             client.disconnect();
           },
+          reconnect: () => manualReconnectRef.current?.(),
         };
 
         if (protocol === "rdp") {

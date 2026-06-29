@@ -7,6 +7,8 @@ import { ProtocolBadge, protocolIcon } from "./ProtocolBadge";
 interface HostCardProps {
   host: Host;
   online?: boolean | null;
+  pinned?: boolean;
+  onTogglePin?: () => void;
   onEdit: (host: Host) => void;
   onDelete: (host: Host) => void;
   canManage?: boolean;
@@ -16,6 +18,8 @@ interface HostCardProps {
 export default function HostCard({
   host,
   online = null,
+  pinned = false,
+  onTogglePin,
   onEdit,
   onDelete,
   canManage = true,
@@ -23,6 +27,7 @@ export default function HostCard({
 }: HostCardProps) {
   const [waking, setWaking] = useState(false);
   const [wakeMsg, setWakeMsg] = useState("");
+  const [readyToConnect, setReadyToConnect] = useState(false);
 
   const tags = host.tags
     ? host.tags.split(",").map((t) => t.trim()).filter(Boolean)
@@ -31,14 +36,20 @@ export default function HostCard({
   const handleWake = async () => {
     setWaking(true);
     setWakeMsg("");
+    setReadyToConnect(false);
     try {
-      const result = await api.wakeHost(host.id);
-      setWakeMsg(
-        result.hint
-          ? `Paquet envoyé. ${result.hint}`
-          : "Paquet WoL envoyé — démarrage en cours…"
-      );
-      setTimeout(() => setWakeMsg(""), 8000);
+      const result = await api.wakeHost(host.id, true);
+      if (result.online) {
+        setWakeMsg("Machine en ligne — vous pouvez vous connecter");
+        setReadyToConnect(true);
+      } else {
+        setWakeMsg(
+          result.hint
+            ? `Paquet envoyé. ${result.hint}`
+            : "Démarrage en cours — la machine n'est pas encore en ligne"
+        );
+      }
+      setTimeout(() => setWakeMsg(""), 12000);
     } catch (err) {
       setWakeMsg(err instanceof Error ? err.message : "Échec WoL");
     } finally {
@@ -71,6 +82,16 @@ export default function HostCard({
                     title={online ? "En ligne" : "Hors ligne"}
                   />
                 )}
+                {onTogglePin && (
+                  <button
+                    type="button"
+                    onClick={onTogglePin}
+                    className={`text-sm ${pinned ? "text-bastion-accent" : "text-slate-600 hover:text-slate-400"}`}
+                    title={pinned ? "Retirer des favoris" : "Épingler"}
+                  >
+                    {pinned ? "★" : "☆"}
+                  </button>
+                )}
               </div>
               <p className="font-mono text-xs text-slate-500">
                 {host.hostname}:{host.port}
@@ -82,8 +103,7 @@ export default function HostCard({
 
         {host.username && (
           <p className="mb-3 text-sm text-slate-400">
-            <span className="text-slate-500">Utilisateur :</span>{" "}
-            {host.username}
+            <span className="text-slate-500">Utilisateur :</span> {host.username}
           </p>
         )}
 
@@ -110,34 +130,28 @@ export default function HostCard({
           </div>
         )}
 
-        {wakeMsg && (
-          <p className="mb-3 text-xs text-bastion-glow">{wakeMsg}</p>
-        )}
+        {wakeMsg && <p className="mb-3 text-xs text-bastion-glow">{wakeMsg}</p>}
 
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Link
             to={`/session/${host.id}`}
-            className="btn-primary flex-1 text-center"
+            className={`btn-primary flex-1 text-center ${readyToConnect ? "animate-pulse" : ""}`}
           >
             Connexion
           </Link>
           {host.macAddress && (
             <button
-              onClick={handleWake}
+              onClick={() => void handleWake()}
               disabled={waking}
               className="btn-secondary px-3"
-              title="Réveiller (Wake-on-LAN)"
+              title="Réveiller et attendre la mise en ligne"
             >
               {waking ? "…" : "⚡ Réveiller"}
             </button>
           )}
           {canManage && (
             <>
-              <button
-                onClick={() => onEdit(host)}
-                className="btn-secondary px-3"
-                title="Modifier"
-              >
+              <button onClick={() => onEdit(host)} className="btn-secondary px-3" title="Modifier">
                 ✎
               </button>
               <button

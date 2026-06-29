@@ -13,7 +13,14 @@ export type AuditAction =
   | "password.change"
   | "user.create"
   | "user.update"
-  | "user.delete";
+  | "user.delete"
+  | "group.create"
+  | "group.update"
+  | "group.delete"
+  | "totp.enable"
+  | "totp.disable"
+  | "session.terminate"
+  | "auth.revoke";
 
 export interface AuditEntry {
   id: string;
@@ -63,4 +70,20 @@ export function logAudit(
 
 export function listAudit(limit = 100): AuditEntry[] {
   return [...auditLog].reverse().slice(0, limit);
+}
+
+export function listAuditForUser(
+  username: string,
+  allowedHostIds: Set<string> | null,
+  limit = 100
+): AuditEntry[] {
+  return [...auditLog]
+    .reverse()
+    .filter((entry) => {
+      if (allowedHostIds === null) return true;
+      if (entry.username === username) return true;
+      if (entry.hostId && allowedHostIds.has(entry.hostId)) return true;
+      return false;
+    })
+    .slice(0, limit);
 }
