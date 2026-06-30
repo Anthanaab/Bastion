@@ -452,12 +452,17 @@ export default function RemoteViewer({
 
         display.scale(factor);
 
+        const boxW = container.clientWidth || viewport.width;
+        const boxH = container.clientHeight || viewport.height;
         const scaledW = dw * factor;
         const scaledH = dh * factor;
-        const offsetX = Math.max(0, (viewport.width - scaledW) / 2);
-        const offsetY = Math.max(0, (viewport.height - scaledH) / 2);
-        element.style.transform =
-          offsetX || offsetY ? `translate(${offsetX}px, ${offsetY}px)` : "";
+        const offsetX = Math.max(0, (boxW - scaledW) / 2);
+        const offsetY = Math.max(0, (boxH - scaledH) / 2);
+        const transform =
+          offsetX || offsetY
+            ? `translate(${offsetX}px, ${offsetY}px) scale(${factor})`
+            : `scale(${factor})`;
+        element.style.transform = transform;
       };
 
       let resizeDebounce: ReturnType<typeof setTimeout> | null = null;
