@@ -1,14 +1,28 @@
 import { useEffect, useState } from "react";
 import Layout from "../components/Layout";
 import GroupsPanel from "../components/GroupsPanel";
+import TotpQrCode from "../components/TotpQrCode";
 import { useAuth } from "../context/AuthContext";
 import { api } from "../lib/api";
 import type { AccessGroup, Host, UserAccount, UserRole } from "../types";
 
-function accessSummary(allowed: string[] | null, totalHosts: number): string {
-  if (allowed === null) return "Toutes les machines";
-  if (allowed.length === 0) return "Aucune machine";
-  return `${allowed.length} / ${totalHosts} machine(s)`;
+function accessSummary(user: UserAccount, totalHosts: number): string {
+  if (user.role === "admin") return "Administrateur";
+  if (user.allowedHostIds === null && user.groupIds.length === 0) {
+    return "Toutes les machines";
+  }
+  const parts: string[] = [];
+  if (user.groupIds.length > 0) {
+    parts.push(`${user.groupIds.length} groupe(s)`);
+  }
+  if (user.allowedHostIds === null) {
+    parts.push("toutes les machines");
+  } else if (user.allowedHostIds.length === 0 && user.groupIds.length === 0) {
+    return "Aucune machine";
+  } else if (user.allowedHostIds.length > 0) {
+    parts.push(`${user.allowedHostIds.length} / ${totalHosts} machine(s)`);
+  }
+  return parts.join(" · ");
 }
 
 function OperatorHostAccess({
@@ -75,7 +89,7 @@ function OperatorHostAccess({
   return (
     <div className="mt-3 w-full rounded-lg border border-bastion-800 bg-bastion-950/50 p-3">
       <p className="mb-2 text-xs text-slate-500">
-        Machines accessibles : {accessSummary(user.allowedHostIds, hosts.length)}
+        Machines accessibles : {accessSummary(user, hosts.length)}
       </p>
       <label className="mb-3 flex cursor-pointer items-center gap-2 text-sm text-slate-300">
         <input
@@ -147,16 +161,22 @@ function OperatorHostAccess({
 
 function CreateUserHostAccess({
   hosts,
+  groups,
   allAccess,
   onAllAccessChange,
   selected,
+  groupIds,
   onToggle,
+  onToggleGroup,
 }: {
   hosts: Host[];
+  groups: AccessGroup[];
   allAccess: boolean;
   onAllAccessChange: (value: boolean) => void;
   selected: Set<string>;
+  groupIds: Set<string>;
   onToggle: (hostId: string) => void;
+  onToggleGroup: (groupId: string) => void;
 }) {
   if (hosts.length === 0) return null;
 
@@ -172,6 +192,25 @@ function CreateUserHostAccess({
         />
         Toutes les machines
       </label>
+      {!allAccess && groups.length > 0 && (
+        <div className="mb-2 space-y-1">
+          <p className="text-xs text-slate-500">Groupes</p>
+          {groups.map((g) => (
+            <label
+              key={g.id}
+              className="flex cursor-pointer items-center gap-2 text-sm text-slate-400"
+            >
+              <input
+                type="checkbox"
+                className="rounded border-bastion-600"
+                checked={groupIds.has(g.id)}
+                onChange={() => onToggleGroup(g.id)}
+              />
+              {g.name} ({g.hostIds.length})
+            </label>
+          ))}
+        </div>
+      )}
       {!allAccess && (
         <div className="max-h-32 space-y-1 overflow-y-auto">
           {hosts.map((host) => (
@@ -262,7 +301,16 @@ function TotpSettings() {
         </div>
       ) : setup ? (
         <div className="space-y-3">
-          <p className="break-all font-mono text-xs text-slate-400">{setup.uri}</p>
+          <TotpQrCode uri={setup.uri} />
+          <p className="text-center text-xs text-slate-500">
+            Scannez avec Google Authenticator, Authy, etc.
+          </p>
+          <details className="text-xs text-slate-500">
+            <summary className="cursor-pointer text-slate-400">
+              Saisie manuelle
+            </summary>
+            <p className="mt-2 break-all font-mono">{setup.secret}</p>
+          </details>
           <input
             className="input-field font-mono"
             placeholder="Code à 6 chiffres"
@@ -300,6 +348,7 @@ export default function SettingsPage() {
   const [newUserRole, setNewUserRole] = useState<UserRole>("operator");
   const [newUserAllAccess, setNewUserAllAccess] = useState(false);
   const [newUserHosts, setNewUserHosts] = useState<Set<string>>(new Set());
+  const [newUserGroups, setNewUserGroups] = useState<Set<string>>(new Set());
   const [userMsg, setUserMsg] = useState("");
 
   const loadUsers = async () => {
@@ -365,13 +414,15 @@ export default function SettingsPage() {
         newUsername.trim(),
         newUserPassword,
         newUserRole,
-        allowedHostIds
+        allowedHostIds,
+        newUserRole === "operator" ? [...newUserGroups] : undefined
       );
       setNewUsername("");
       setNewUserPassword("");
       setNewUserRole("operator");
       setNewUserAllAccess(false);
       setNewUserHosts(new Set());
+      setNewUserGroups(new Set());
       setUserMsg("Utilisateur créé");
       await loadUsers();
     } catch (err) {
@@ -385,6 +436,25 @@ export default function SettingsPage() {
       await api.updateUser(id, { role });
       setUserMsg("Rôle mis à jour");
       await loadUsers();
+    } catch (err) {
+      setUserMsg(err instanceof Error ? err.message : "Erreur");
+    }
+  };
+
+  const handleRevokeSessions = async (user: UserAccount) => {
+    if (
+      !confirm(
+        `Révoquer toutes les sessions de « ${user.username} » ?\nL'utilisateur devra se reconnecter.`
+      )
+    ) {
+      return;
+    }
+    setUserMsg("");
+    try {
+      const res = await api.revokeUserSessions(user.id);
+      setUserMsg(
+        `Sessions révoquées pour ${user.username} (${res.revoked} connexion(s))`
+      );
     } catch (err) {
       setUserMsg(err instanceof Error ? err.message : "Erreur");
     }
@@ -407,6 +477,15 @@ export default function SettingsPage() {
       const next = new Set(prev);
       if (next.has(hostId)) next.delete(hostId);
       else next.add(hostId);
+      return next;
+    });
+  };
+
+  const toggleNewUserGroup = (groupId: string) => {
+    setNewUserGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(groupId)) next.delete(groupId);
+      else next.add(groupId);
       return next;
     });
   };
@@ -512,9 +591,7 @@ export default function SettingsPage() {
                       <div>
                         <p className="font-medium text-white">{user.username}</p>
                         <p className="text-xs text-slate-500">
-                          {user.role === "admin"
-                            ? "Administrateur"
-                            : accessSummary(user.allowedHostIds, hosts.length)}
+                          {accessSummary(user, hosts.length)}
                         </p>
                       </div>
                       <div className="flex items-center gap-2">
@@ -528,6 +605,14 @@ export default function SettingsPage() {
                           <option value="admin">Admin</option>
                           <option value="operator">Opérateur</option>
                         </select>
+                        <button
+                          type="button"
+                          onClick={() => void handleRevokeSessions(user)}
+                          className="btn-secondary px-2 text-xs"
+                          title="Révoquer les sessions"
+                        >
+                          ⏻
+                        </button>
                         <button
                           type="button"
                           onClick={() => handleDeleteUser(user)}
@@ -588,10 +673,13 @@ export default function SettingsPage() {
               {newUserRole === "operator" && (
                 <CreateUserHostAccess
                   hosts={hosts}
+                  groups={groups}
                   allAccess={newUserAllAccess}
                   onAllAccessChange={setNewUserAllAccess}
                   selected={newUserHosts}
+                  groupIds={newUserGroups}
                   onToggle={toggleNewUserHost}
+                  onToggleGroup={toggleNewUserGroup}
                 />
               )}
               <button type="submit" className="btn-primary">

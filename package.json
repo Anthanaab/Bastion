@@ -1,6 +1,6 @@
 {
   "name": "bastion",
-  "version": "1.8.0",
+  "version": "1.8.1",
   "private": true,
   "description": "Passerelle d'accès distant auto-hébergée — SSH, RDP, VNC",
   "scripts": {

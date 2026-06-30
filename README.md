@@ -2,7 +2,7 @@
 
 Interface web pour se connecter à vos machines en **SSH**, **RDP** et **VNC** depuis un navigateur.
 
-**Version actuelle : 1.8.0**
+**Version actuelle : 1.8.1**
 
 ## Démarrage rapide (Docker)
 
@@ -22,6 +22,7 @@ Ouvrez **http://localhost:3000** — identifiants par défaut : `admin` / `admin
 - Bureau distant RDP/VNC via guacd
 - Reconnexion automatique (RDP/VNC/SSH) avec backoff
 - Outils RDP : plein écran, Ctrl+Alt+Suppr, presse-papiers
+- **Réglages RDP** en session : résolution (auto/manuel) et profils qualité (performance / équilibré / qualité)
 
 ### Gestion des machines
 - Tableau de bord : recherche, filtres protocole/tags
@@ -37,7 +38,7 @@ Ouvrez **http://localhost:3000** — identifiants par défaut : `admin` / `admin
 
 ### Sécurité
 - JWT + sessions révocables (déconnexion forcée admin)
-- 2FA TOTP (Google Authenticator, etc.)
+- 2FA TOTP avec **QR code** (Google Authenticator, etc.)
 - Chiffrement AES des identifiants hôtes
 - Rate limit login, SSH TOFU, relais WoL authentifié
 
@@ -106,7 +107,8 @@ Navigateur ──► Bastion (Node.js) ──► SSH direct
 
 | Version | Highlights |
 |---------|------------|
-| **1.8.0** | Groupes d'accès, 2FA, favoris, notifs statut, WoL intelligent, sessions live, sauvegarde auto |
+| **1.8.1** | QR 2FA, révocation sessions UI, groupes à la création user |
+| **1.8.0** | Groupes, 2FA, favoris, WoL intelligent, sessions live, réglages RDP (résolution/qualité) |
 | **1.7.0** | Accès par machine pour opérateurs |
 | **1.6.0** | Multi-user, reconnexion auto, polling statut |
 | **1.5.0** | Historique sessions, audit, import/export |
