@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import Guacamole from "guacamole-common-js";
 import { api, wsBaseUrl, wsConnectData } from "../lib/api";
 import {
+  computeDisplayScale,
   isMobileViewport,
   measureViewport,
   resolveRdpResolution,
@@ -181,8 +182,10 @@ export default function RemoteViewer({
   }, [reconnectRef]);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => viewportChangeRef.current?.(), 200);
-    return () => window.clearTimeout(timer);
+    const timers = [0, 200, 500, 1000].map((delay) =>
+      window.setTimeout(() => viewportChangeRef.current?.(), delay)
+    );
+    return () => timers.forEach((id) => window.clearTimeout(id));
   }, [immersive]);
 
   useEffect(() => {
@@ -274,9 +277,8 @@ export default function RemoteViewer({
       containerRef.current.innerHTML = "";
       containerRef.current.appendChild(element);
       element.style.display = "block";
-      element.style.width = "100%";
-      element.style.height = "100%";
       element.style.touchAction = "none";
+      element.style.transformOrigin = "top left";
       element.tabIndex = 0;
 
       const onPaste = (event: ClipboardEvent) => {
@@ -321,14 +323,23 @@ export default function RemoteViewer({
         const dh = display.getHeight();
         if (!dw || !dh) return;
 
-        const widthRatio = container.clientWidth / dw;
-        const heightRatio = container.clientHeight / dh;
-        let factor = Math.min(widthRatio, heightRatio);
-        if (isCoarsePointer() || isMobileViewport()) {
-          factor = Math.min(factor, 1);
-        }
+        const viewport = measureViewport(container);
+        const mobile = isMobileViewport();
+        const coarse = isCoarsePointer();
+        const factor = computeDisplayScale(
+          viewport,
+          { width: dw, height: dh },
+          { mobile, coarse }
+        );
 
         display.scale(factor);
+
+        const scaledW = dw * factor;
+        const scaledH = dh * factor;
+        const offsetX = Math.max(0, (viewport.width - scaledW) / 2);
+        const offsetY = Math.max(0, (viewport.height - scaledH) / 2);
+        element.style.transform =
+          offsetX || offsetY ? `translate(${offsetX}px, ${offsetY}px)` : "";
       };
 
       let resizeDebounce: ReturnType<typeof setTimeout> | null = null;
@@ -353,6 +364,14 @@ export default function RemoteViewer({
           resizeDebounce = null;
           pushDisplaySize();
           scale();
+          if (isMobileViewport()) {
+            for (const retry of [350, 800]) {
+              window.setTimeout(() => {
+                pushDisplaySize();
+                scale();
+              }, retry);
+            }
+          }
         }, delay);
       };
 
@@ -460,7 +479,11 @@ export default function RemoteViewer({
       resizeObserver.observe(containerRef.current);
 
       const onOrientationChange = () => {
-        window.setTimeout(handleViewportChange, 150);
+        handleViewportChange();
+        if (isMobileViewport()) {
+          window.setTimeout(handleViewportChange, 150);
+          window.setTimeout(handleViewportChange, 500);
+        }
       };
       window.addEventListener("orientationchange", onOrientationChange);
       window.visualViewport?.addEventListener("resize", handleViewportChange);
@@ -526,7 +549,7 @@ export default function RemoteViewer({
       {touchUi && !error && !manualReconnect && (
         <p className="pointer-events-none absolute bottom-2 left-0 right-0 px-3 text-center text-[10px] text-slate-500 sm:hidden">
           {isMobileViewport()
-            ? "Bureau 1280×720 adapté à l'écran · touchez pour cliquer"
+            ? "Paysage : bureau pleine largeur · touchez pour cliquer"
             : "Touchez pour cliquer · glisser pour déplacer · appui long = clic droit"}
         </p>
       )}

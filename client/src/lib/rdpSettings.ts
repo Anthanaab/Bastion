@@ -21,12 +21,27 @@ export const RDP_MAX_WIDTH = 3840;
 export const RDP_MIN_HEIGHT = 240;
 export const RDP_MAX_HEIGHT = 2160;
 
-/** Résolution RDP virtuelle sur mobile — affichée réduite pour voir tout le bureau */
-export const MOBILE_RDP_WIDTH = 1280;
-export const MOBILE_RDP_HEIGHT = 720;
-
 export function isMobileViewport(): boolean {
   return window.matchMedia("(max-width: 768px), (pointer: coarse)").matches;
+}
+
+function isLandscapeOrientation(): boolean {
+  return window.matchMedia("(orientation: landscape)").matches;
+}
+
+/** iOS Safari peut inverser ou retarder width/height après rotation */
+function alignToOrientation(
+  width: number,
+  height: number,
+  landscape: boolean
+): { width: number; height: number } {
+  if (landscape && width < height) {
+    return { width: height, height: width };
+  }
+  if (!landscape && width > height) {
+    return { width: height, height: width };
+  }
+  return { width, height };
 }
 
 export function measureViewport(container: HTMLElement | null): {
@@ -34,16 +49,48 @@ export function measureViewport(container: HTMLElement | null): {
   height: number;
 } {
   const vv = window.visualViewport;
-  let width = container?.clientWidth ?? 0;
-  let height = container?.clientHeight ?? 0;
-  if (width < 64 || height < 64) {
-    width = vv?.width ?? window.innerWidth;
-    height = vv?.height ?? window.innerHeight;
+  const landscape = isLandscapeOrientation();
+  const containerWidth = container?.clientWidth ?? 0;
+  const containerHeight = container?.clientHeight ?? 0;
+
+  if (isMobileViewport()) {
+    let width = Math.round(vv?.width ?? window.innerWidth);
+    let height = Math.round(vv?.height ?? window.innerHeight);
+    if (containerWidth > 0) width = Math.max(width, containerWidth);
+    if (containerHeight > 0) height = Math.max(height, containerHeight);
+    return alignToOrientation(width, height, landscape);
   }
-  return {
-    width: Math.round(width),
-    height: Math.round(height),
-  };
+
+  let width = containerWidth;
+  let height = containerHeight;
+  if (width < 64 || height < 64) {
+    width = Math.round(vv?.width ?? window.innerWidth);
+    height = Math.round(vv?.height ?? window.innerHeight);
+  }
+  return alignToOrientation(width, height, landscape);
+}
+
+/** Facteur d'échelle Guacamole — paysage mobile : remplir la largeur (pas de bandes latérales) */
+export function computeDisplayScale(
+  viewport: { width: number; height: number },
+  display: { width: number; height: number },
+  options: { mobile: boolean; coarse: boolean }
+): number {
+  const { width: vw, height: vh } = viewport;
+  const { width: dw, height: dh } = display;
+  if (!dw || !dh || !vw || !vh) return 1;
+
+  const widthRatio = vw / dw;
+  const heightRatio = vh / dh;
+  const landscape = vw > vh;
+
+  if ((options.mobile || options.coarse) && landscape) {
+    return widthRatio;
+  }
+  if (options.mobile || options.coarse) {
+    return Math.min(widthRatio, heightRatio, 1);
+  }
+  return Math.min(widthRatio, heightRatio);
 }
 
 export const RDP_QUALITY_PROFILES: Record<
@@ -140,19 +187,17 @@ export function resolveRdpResolution(
     };
   }
 
-  if (isMobileViewport()) {
-    return { width: MOBILE_RDP_WIDTH, height: MOBILE_RDP_HEIGHT };
-  }
-
   const measured = measureViewport(container);
+  const fallbackWidth = isMobileViewport() ? 390 : DEFAULT_RDP_DISPLAY_SETTINGS.width;
+  const fallbackHeight = isMobileViewport() ? 844 : DEFAULT_RDP_DISPLAY_SETTINGS.height;
   return {
     width: Math.min(
       RDP_MAX_WIDTH,
-      Math.max(RDP_MIN_WIDTH, measured.width || DEFAULT_RDP_DISPLAY_SETTINGS.width)
+      Math.max(RDP_MIN_WIDTH, measured.width || fallbackWidth)
     ),
     height: Math.min(
       RDP_MAX_HEIGHT,
-      Math.max(RDP_MIN_HEIGHT, measured.height || DEFAULT_RDP_DISPLAY_SETTINGS.height)
+      Math.max(RDP_MIN_HEIGHT, measured.height || fallbackHeight)
     ),
   };
 }

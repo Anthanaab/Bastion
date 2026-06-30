@@ -111,8 +111,8 @@ export default function RdpSettingsPanel({
                 <span>
                   <span className="block text-sm text-slate-200">Automatique</span>
                   <span className="block text-xs text-slate-500">
-                    Sur mobile : bureau 1280×720 redimensionné à l&apos;écran.
-                    En paysage + plein écran pour plus de confort.
+                    Sur mobile : le bureau remplit la largeur en paysage
+                    (plein écran recommandé).
                   </span>
                 </span>
               </label>
