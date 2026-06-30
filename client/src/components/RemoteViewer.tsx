@@ -25,9 +25,60 @@ function reconnectDelay(attempt: number): number {
 }
 
 function viewportSize(container: HTMLElement): { width: number; height: number } {
-  const width = Math.min(3840, Math.max(800, container.clientWidth || 1920));
-  const height = Math.min(2160, Math.max(600, container.clientHeight || 1080));
+  const width = Math.min(3840, Math.max(320, container.clientWidth || 1280));
+  const height = Math.min(2160, Math.max(240, container.clientHeight || 720));
   return { width, height };
+}
+
+function isCoarsePointer(): boolean {
+  return (
+    window.matchMedia("(pointer: coarse)").matches ||
+    "ontouchstart" in window
+  );
+}
+
+const MOUSE_EVENTS = ["mousedown", "mousemove", "mouseup"] as const;
+
+function attachPointerInput(
+  client: Guacamole.Client,
+  element: HTMLElement
+): { detach: () => void } {
+  const handler = (event: Guacamole.Mouse.Event) => {
+    element.focus({ preventScroll: true });
+    client.getDisplay().showCursor(true);
+    client.sendMouseState(event.state, true);
+  };
+
+  const input: Guacamole.Mouse.EventTarget = isCoarsePointer()
+    ? new Guacamole.Mouse.Touchscreen(element)
+    : new Guacamole.Mouse(element);
+
+  input.onEach([...MOUSE_EVENTS], handler);
+
+  return {
+    detach: () => {
+      input.offEach([...MOUSE_EVENTS], handler);
+    },
+  };
+}
+
+function resolveSessionResolution(
+  protocol: "rdp" | "vnc",
+  container: HTMLElement,
+  rdpSettings?: RdpDisplaySettings
+): { width: number; height: number } {
+  if (protocol === "rdp" && rdpSettings) {
+    return resolveRdpResolution(rdpSettings, container);
+  }
+  return viewportSize(container);
+}
+
+function shouldSendDynamicResize(
+  protocol: "rdp" | "vnc",
+  rdpSettings?: RdpDisplaySettings
+): boolean {
+  if (protocol === "vnc") return true;
+  return !rdpSettings || rdpSettings.resolutionMode === "auto";
 }
 
 const CTRL_KEYSYM = 0xffe3;
@@ -92,11 +143,16 @@ export default function RemoteViewer({
   const [error, setError] = useState("");
   const [reconnecting, setReconnecting] = useState(false);
   const [manualReconnect, setManualReconnect] = useState(false);
+  const [touchUi, setTouchUi] = useState(false);
   const manualReconnectRef = useRef<(() => void) | null>(null);
   const onSessionControlRef = useRef(onSessionControl);
   const onStatusChangeRef = useRef(onStatusChange);
   onSessionControlRef.current = onSessionControl;
   onStatusChangeRef.current = onStatusChange;
+
+  useEffect(() => {
+    setTouchUi(isCoarsePointer());
+  }, []);
 
   useEffect(() => {
     onStatusChangeRef.current?.({
@@ -175,10 +231,11 @@ export default function RemoteViewer({
 
       if (cancelled || !containerRef.current) return;
 
-      const { width, height } =
-        protocol === "rdp" && rdpSettings
-          ? resolveRdpResolution(rdpSettings, containerRef.current)
-          : viewportSize(containerRef.current);
+      const { width, height } = resolveSessionResolution(
+        protocol,
+        containerRef.current,
+        rdpSettings
+      );
       const tunnel = new Guacamole.WebSocketTunnel(wsBaseUrl("/ws/guacd"));
       tunnel.receiveTimeout = 300_000;
       tunnel.unstableThreshold = 60_000;
@@ -206,7 +263,7 @@ export default function RemoteViewer({
       element.style.width = "100%";
       element.style.height = "100%";
       element.style.touchAction = "none";
-      element.tabIndex = -1;
+      element.tabIndex = 0;
 
       const onPaste = (event: ClipboardEvent) => {
         const text = event.clipboardData?.getData("text/plain");
@@ -256,12 +313,44 @@ export default function RemoteViewer({
         if (!container) return;
         const dw = display.getWidth();
         const dh = display.getHeight();
-        if (dw && dh) {
-          display.scale(
-            Math.min(container.clientWidth / dw, container.clientHeight / dh)
-          );
-        }
+        if (!dw || !dh) return;
+
+        const widthRatio = container.clientWidth / dw;
+        const heightRatio = container.clientHeight / dh;
+        const landscape = container.clientWidth >= container.clientHeight;
+        const factor =
+          isCoarsePointer() && landscape
+            ? widthRatio
+            : Math.min(widthRatio, heightRatio);
+
+        display.scale(factor);
       };
+
+      let resizeDebounce: ReturnType<typeof setTimeout> | null = null;
+      const pushDisplaySize = () => {
+        if (!clientConnected) return;
+        if (!shouldSendDynamicResize(protocol, rdpSettings)) return;
+        const container = containerRef.current;
+        if (!container) return;
+        const { width, height } = resolveSessionResolution(
+          protocol,
+          container,
+          rdpSettings
+        );
+        client.sendSize(width, height);
+      };
+
+      const handleViewportChange = () => {
+        scale();
+        if (resizeDebounce) clearTimeout(resizeDebounce);
+        resizeDebounce = setTimeout(() => {
+          resizeDebounce = null;
+          pushDisplaySize();
+          scale();
+        }, 300);
+      };
+
+      const pointerInput = attachPointerInput(client, element);
 
       client.onsync = () => {
         scale();
@@ -280,15 +369,6 @@ export default function RemoteViewer({
           };
         };
       }
-
-      const mouse = new Guacamole.Mouse(element);
-      mouse.onmousedown =
-        mouse.onmouseup =
-        mouse.onmousemove =
-          (mouseState: Guacamole.Mouse.State) => {
-            element.focus({ preventScroll: true });
-            client.sendMouseState(mouseState, true);
-          };
 
       const keyboard = new Guacamole.Keyboard(element);
       keyboard.onkeydown = (keysym: number) => client.sendKeyEvent(1, keysym);
@@ -334,7 +414,7 @@ export default function RemoteViewer({
           setStatus("Connecté");
           setError("");
           publishControl();
-          scale();
+          handleViewportChange();
         } else if (state === Guacamole.Client.State.DISCONNECTED && guacdReady) {
           clientConnected = false;
           clearControl();
@@ -367,16 +447,26 @@ export default function RemoteViewer({
       }, 90000);
 
       const resizeObserver = new ResizeObserver(() => {
-        scale();
+        handleViewportChange();
       });
       resizeObserver.observe(containerRef.current);
+
+      const onOrientationChange = () => {
+        window.setTimeout(handleViewportChange, 150);
+      };
+      window.addEventListener("orientationchange", onOrientationChange);
+      window.visualViewport?.addEventListener("resize", handleViewportChange);
 
       sessionCleanup = () => {
         if (clientConnected) clearControl();
         element.removeEventListener("paste", onPaste);
         window.clearTimeout(handshakeTimeout);
         window.clearTimeout(timeout);
+        if (resizeDebounce) clearTimeout(resizeDebounce);
         resizeObserver.disconnect();
+        window.removeEventListener("orientationchange", onOrientationChange);
+        window.visualViewport?.removeEventListener("resize", handleViewportChange);
+        pointerInput.detach();
         keyboard.onkeydown = keyboard.onkeyup = null;
         client.disconnect();
       };
@@ -424,6 +514,11 @@ export default function RemoteViewer({
       >
         {error || status}
       </div>
+      {touchUi && !error && !manualReconnect && (
+        <p className="pointer-events-none absolute bottom-2 left-0 right-0 px-3 text-center text-[10px] text-slate-500 sm:hidden">
+          Touchez pour cliquer · glisser pour déplacer · appui long = clic droit
+        </p>
+      )}
       {manualReconnect && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/60 sm:pointer-events-auto">
           <button

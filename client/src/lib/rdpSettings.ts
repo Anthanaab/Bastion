@@ -16,9 +16,9 @@ export const RDP_RESOLUTION_PRESETS = [
   { label: "3840 × 2160 (4K)", width: 3840, height: 2160 },
 ] as const;
 
-export const RDP_MIN_WIDTH = 800;
+export const RDP_MIN_WIDTH = 320;
 export const RDP_MAX_WIDTH = 3840;
-export const RDP_MIN_HEIGHT = 600;
+export const RDP_MIN_HEIGHT = 240;
 export const RDP_MAX_HEIGHT = 2160;
 
 export const RDP_QUALITY_PROFILES: Record<

@@ -164,8 +164,8 @@ export function handleGuacdConnection(
   }
 
   const viewport = {
-    width: parseViewportSize(params.get("width"), 1920, 800, 3840),
-    height: parseViewportSize(params.get("height"), 1080, 600, 2160),
+    width: parseViewportSize(params.get("width"), 1920, 320, 3840),
+    height: parseViewportSize(params.get("height"), 1080, 240, 2160),
   };
   const qualityProfile = parseQualityProfile(params.get("quality"));
 

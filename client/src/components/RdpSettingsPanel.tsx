@@ -111,7 +111,7 @@ export default function RdpSettingsPanel({
                 <span>
                   <span className="block text-sm text-slate-200">Automatique</span>
                   <span className="block text-xs text-slate-500">
-                    Adapte la résolution à la taille du panneau d&apos;affichage.
+                    Adapte la résolution au panneau (portrait/paysage sur mobile).
                   </span>
                 </span>
               </label>

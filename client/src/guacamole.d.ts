@@ -17,6 +17,7 @@ declare module "guacamole-common-js" {
     getWidth(): number;
     getHeight(): number;
     scale(factor: number): void;
+    showCursor(show: boolean): void;
   }
 
   export namespace Mouse {
@@ -29,13 +30,30 @@ declare module "guacamole-common-js" {
       up: boolean;
       down: boolean;
     }
+
+    interface Event {
+      state: State;
+    }
+
+    interface EventTarget {
+      onEach(types: string[], listener: (event: Event) => void): void;
+      offEach(types: string[], listener: (event: Event) => void): void;
+    }
+
+    class Touchscreen implements EventTarget {
+      constructor(element: HTMLElement);
+      onEach(types: string[], listener: (event: Event) => void): void;
+      offEach(types: string[], listener: (event: Event) => void): void;
+    }
   }
 
-  export class Mouse {
+  export class Mouse implements Mouse.EventTarget {
     constructor(element: HTMLElement);
     onmousedown: ((state: Mouse.State) => void) | null;
     onmouseup: ((state: Mouse.State) => void) | null;
     onmousemove: ((state: Mouse.State) => void) | null;
+    onEach(types: string[], listener: (event: Mouse.Event) => void): void;
+    offEach(types: string[], listener: (event: Mouse.Event) => void): void;
   }
 
   export class Keyboard {
