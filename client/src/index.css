@@ -31,11 +31,25 @@
 
 @layer components {
   .btn-primary {
-    @apply inline-flex items-center justify-center gap-2 rounded-lg bg-bastion-accent px-4 py-2.5 text-sm font-semibold text-bastion-950 transition hover:bg-bastion-glow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bastion-accent/50 focus-visible:ring-offset-2 focus-visible:ring-offset-bastion-950 active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50;
+    @apply touch-manipulation inline-flex items-center justify-center gap-2 rounded-lg bg-bastion-accent px-4 py-2.5 text-sm font-semibold text-bastion-950 transition hover:bg-bastion-glow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bastion-accent/50 focus-visible:ring-offset-2 focus-visible:ring-offset-bastion-950 active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50;
   }
 
   .btn-secondary {
-    @apply inline-flex items-center justify-center gap-2 rounded-lg border border-bastion-600 bg-bastion-800 px-4 py-2.5 text-sm font-medium text-slate-200 transition hover:border-bastion-accent/40 hover:bg-bastion-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bastion-accent/40 focus-visible:ring-offset-2 focus-visible:ring-offset-bastion-950 active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50;
+    @apply touch-manipulation inline-flex items-center justify-center gap-2 rounded-lg border border-bastion-600 bg-bastion-800 px-4 py-2.5 text-sm font-medium text-slate-200 transition hover:border-bastion-accent/40 hover:bg-bastion-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bastion-accent/40 focus-visible:ring-offset-2 focus-visible:ring-offset-bastion-950 active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50;
+  }
+
+  .session-shell {
+    height: 100dvh;
+    @apply overflow-hidden;
+  }
+
+  .session-header {
+    @apply relative z-30 shrink-0 border-b border-bastion-800 bg-bastion-950 px-4 py-3;
+  }
+
+  .session-viewport {
+    @apply relative z-0 min-h-0 flex-1 overflow-hidden p-3;
+    contain: layout paint;
   }
 
   .btn-icon {

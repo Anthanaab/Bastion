@@ -1,3 +1,10 @@
+export interface ConnectionStatus {
+  message: string;
+  error?: string;
+  reconnecting?: boolean;
+  manualReconnect?: boolean;
+}
+
 export interface RdpTools {
   toggleFullscreen: () => void;
   sendCtrlAltDel: () => void;

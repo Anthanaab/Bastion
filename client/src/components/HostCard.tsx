@@ -151,7 +151,7 @@ export default function HostCard({
         <div className="flex flex-wrap gap-2">
           <Link
             to={`/session/${host.id}`}
-            className={`btn-primary flex-1 text-center ${readyToConnect ? "animate-pulse" : ""}`}
+            className={`btn-primary min-h-[44px] flex-1 text-center ${readyToConnect ? "animate-pulse" : ""}`}
           >
             Connexion
           </Link>

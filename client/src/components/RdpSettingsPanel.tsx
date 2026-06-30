@@ -75,7 +75,7 @@ export default function RdpSettingsPanel({
     <div className="fixed inset-0 z-50 flex justify-end">
       <button
         type="button"
-        className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+        className="absolute inset-0 bg-black/50 max-sm:bg-black/70 sm:backdrop-blur-sm"
         aria-label="Fermer les réglages RDP"
         onClick={onClose}
       />

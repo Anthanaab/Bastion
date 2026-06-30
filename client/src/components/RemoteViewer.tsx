@@ -6,13 +6,15 @@ import {
   rdpSettingsSignature,
   type RdpDisplaySettings,
 } from "../lib/rdpSettings";
-import type { SessionControl } from "../lib/session";
+import type { ConnectionStatus, SessionControl } from "../lib/session";
 
 interface RemoteViewerProps {
   hostId: string;
   protocol: "rdp" | "vnc";
   rdpSettings?: RdpDisplaySettings;
   onSessionControl?: (control: SessionControl | null) => void;
+  onStatusChange?: (status: ConnectionStatus) => void;
+  reconnectRef?: React.MutableRefObject<(() => void) | null>;
   viewportRef?: React.RefObject<HTMLDivElement | null>;
 }
 
@@ -81,6 +83,8 @@ export default function RemoteViewer({
   protocol,
   rdpSettings,
   onSessionControl,
+  onStatusChange,
+  reconnectRef,
   viewportRef,
 }: RemoteViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -90,7 +94,26 @@ export default function RemoteViewer({
   const [manualReconnect, setManualReconnect] = useState(false);
   const manualReconnectRef = useRef<(() => void) | null>(null);
   const onSessionControlRef = useRef(onSessionControl);
+  const onStatusChangeRef = useRef(onStatusChange);
   onSessionControlRef.current = onSessionControl;
+  onStatusChangeRef.current = onStatusChange;
+
+  useEffect(() => {
+    onStatusChangeRef.current?.({
+      message: status,
+      error: error || undefined,
+      reconnecting,
+      manualReconnect,
+    });
+  }, [status, error, reconnecting, manualReconnect]);
+
+  useEffect(() => {
+    if (!reconnectRef) return;
+    reconnectRef.current = () => manualReconnectRef.current?.();
+    return () => {
+      reconnectRef.current = null;
+    };
+  }, [reconnectRef]);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -182,7 +205,8 @@ export default function RemoteViewer({
       element.style.display = "block";
       element.style.width = "100%";
       element.style.height = "100%";
-      element.tabIndex = 0;
+      element.style.touchAction = "none";
+      element.tabIndex = -1;
 
       const onPaste = (event: ClipboardEvent) => {
         const text = event.clipboardData?.getData("text/plain");
@@ -368,9 +392,12 @@ export default function RemoteViewer({
       void openSession();
     };
 
-    void openSession();
+    const startTimer = window.setTimeout(() => {
+      void openSession();
+    }, 0);
 
     return () => {
+      window.clearTimeout(startTimer);
       cancelled = true;
       intentional = true;
       manualReconnectRef.current = null;
@@ -382,9 +409,12 @@ export default function RemoteViewer({
 
   return (
     <div className="relative h-full w-full overflow-hidden rounded-lg border border-bastion-700 bg-black">
-      <div ref={containerRef} className="absolute inset-0 overflow-hidden" />
       <div
-        className={`pointer-events-none absolute left-3 top-3 max-w-md rounded-md px-2 py-1 text-xs backdrop-blur ${
+        ref={containerRef}
+        className="absolute inset-0 overflow-hidden overscroll-none"
+      />
+      <div
+        className={`pointer-events-none absolute left-3 top-3 hidden max-w-md rounded-md px-2 py-1 text-xs sm:block ${
           error
             ? "bg-red-950/90 text-red-300"
             : reconnecting
@@ -395,10 +425,10 @@ export default function RemoteViewer({
         {error || status}
       </div>
       {manualReconnect && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black/60">
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/60 sm:pointer-events-auto">
           <button
             type="button"
-            className="btn-primary pointer-events-auto"
+            className="btn-primary pointer-events-auto min-h-[44px]"
             onClick={() => manualReconnectRef.current?.()}
           >
             Reconnecter

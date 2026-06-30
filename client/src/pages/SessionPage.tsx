@@ -14,7 +14,7 @@ import {
   saveRdpDisplaySettings,
   type RdpDisplaySettings,
 } from "../lib/rdpSettings";
-import type { SessionControl } from "../lib/session";
+import type { ConnectionStatus, SessionControl } from "../lib/session";
 import type { Host } from "../types";
 
 export default function SessionPage() {
@@ -32,6 +32,10 @@ export default function SessionPage() {
     loadRdpDisplaySettings(hostId ?? "")
   );
   const viewportRef = useRef<HTMLDivElement>(null);
+  const remoteReconnectRef = useRef<(() => void) | null>(null);
+  const [connStatus, setConnStatus] = useState<ConnectionStatus>({
+    message: "Initialisation…",
+  });
 
   const handleSessionControl = useCallback((control: SessionControl | null) => {
     setSession(control);
@@ -40,6 +44,7 @@ export default function SessionPage() {
   useEffect(() => {
     setSession(null);
     setMobileActionsOpen(false);
+    setConnStatus({ message: "Initialisation…" });
     if (hostId) {
       setRdpSettings(loadRdpDisplaySettings(hostId));
     }
@@ -91,6 +96,11 @@ export default function SessionPage() {
     setTimeout(() => setClipboardMsg(""), 2500);
   };
 
+  const statusLabel =
+    session?.connected
+      ? "Connecté"
+      : connStatus.error || connStatus.message || session?.status || `Session ${host?.protocol.toUpperCase() ?? ""}`;
+
   if (loading) {
     return (
       <Layout>
@@ -115,11 +125,11 @@ export default function SessionPage() {
   }
 
   return (
-    <div className="flex h-screen flex-col bg-bastion-950">
-      <header className="relative shrink-0 border-b border-bastion-800 bg-bastion-950/90 px-4 py-3 backdrop-blur-md">
+    <div className="session-shell flex flex-col bg-bastion-950">
+      <header className="session-header">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-3 sm:gap-4">
-            <Link to="/" className="btn-secondary shrink-0 py-2 text-xs">
+            <Link to="/" className="btn-secondary shrink-0 min-h-[44px] py-2 text-xs">
               ← Retour
             </Link>
             <div className="flex min-w-0 items-center gap-2 sm:gap-3">
@@ -144,7 +154,7 @@ export default function SessionPage() {
               <button
                 type="button"
                 onClick={() => setRdpSettingsOpen(true)}
-                className="btn-secondary py-2 text-xs"
+                className="btn-secondary min-h-[44px] py-2 text-xs"
                 title={rdpSettingsSummary ?? "Réglages RDP"}
               >
                 Réglages
@@ -155,33 +165,43 @@ export default function SessionPage() {
                 <button
                   type="button"
                   onClick={() => session.rdp!.toggleFullscreen()}
-                  className="btn-secondary hidden py-2 text-xs sm:inline-flex"
+                  className="btn-secondary hidden min-h-[44px] py-2 text-xs sm:inline-flex"
                 >
                   Plein écran
                 </button>
                 <button
                   type="button"
                   onClick={() => session.rdp!.sendCtrlAltDel()}
-                  className="btn-secondary hidden py-2 text-xs sm:inline-flex"
+                  className="btn-secondary hidden min-h-[44px] py-2 text-xs sm:inline-flex"
                 >
                   Ctrl+Alt+Suppr
                 </button>
                 <button
                   type="button"
                   onClick={handlePasteClipboard}
-                  className="btn-secondary hidden py-2 text-xs sm:inline-flex"
+                  className="btn-secondary hidden min-h-[44px] py-2 text-xs sm:inline-flex"
                 >
                   Coller
                 </button>
                 <button
                   type="button"
                   onClick={() => setMobileActionsOpen((open) => !open)}
-                  className="btn-secondary py-2 text-xs sm:hidden"
+                  className="btn-secondary min-h-[44px] py-2 text-xs sm:hidden"
                   aria-expanded={mobileActionsOpen}
                 >
                   Actions RDP
                 </button>
               </>
+            )}
+
+            {connStatus.manualReconnect && (
+              <button
+                type="button"
+                onClick={() => remoteReconnectRef.current?.()}
+                className="btn-primary min-h-[44px] py-2 text-xs sm:hidden"
+              >
+                Reconnecter
+              </button>
             )}
 
             {session?.connected ? (
@@ -193,27 +213,43 @@ export default function SessionPage() {
                 <button
                   type="button"
                   onClick={() => session.disconnect()}
-                  className="btn-danger"
+                  className="btn-danger min-h-[44px]"
                 >
                   Déconnecter
                 </button>
               </>
             ) : (
-              <span className="text-xs text-slate-500">
-                {session?.status ?? `Session ${host.protocol.toUpperCase()}`}
-              </span>
+              !connStatus.manualReconnect && (
+                <span
+                  className={`max-w-[10rem] truncate text-xs sm:max-w-none ${
+                    connStatus.error ? "text-red-300" : "text-slate-500"
+                  }`}
+                >
+                  {statusLabel}
+                </span>
+              )
             )}
             {!session?.connected && session?.reconnect && (
               <button
                 type="button"
                 onClick={() => session.reconnect?.()}
-                className="btn-secondary py-2 text-xs"
+                className="btn-secondary min-h-[44px] py-2 text-xs"
               >
                 Reconnecter
               </button>
             )}
           </div>
         </div>
+
+        {!session?.connected && (
+          <p
+            className={`mt-2 text-xs sm:hidden ${
+              connStatus.error ? "text-red-300" : "text-slate-400"
+            }`}
+          >
+            {statusLabel}
+          </p>
+        )}
 
         {mobileActionsOpen && session?.connected && session.rdp && (
           <div className="mt-3 flex flex-col gap-2 border-t border-bastion-800 pt-3 sm:hidden">
@@ -257,7 +293,7 @@ export default function SessionPage() {
         </InlineAlert>
       )}
 
-      <div ref={viewportRef} className="relative min-h-0 flex-1 p-3">
+      <div ref={viewportRef} className="session-viewport">
         {host.protocol === "ssh" ? (
           <SshTerminal hostId={host.id} onSessionControl={handleSessionControl} />
         ) : (
@@ -266,6 +302,8 @@ export default function SessionPage() {
             protocol={host.protocol}
             rdpSettings={host.protocol === "rdp" ? rdpSettings : undefined}
             onSessionControl={handleSessionControl}
+            onStatusChange={setConnStatus}
+            reconnectRef={remoteReconnectRef}
             viewportRef={viewportRef}
           />
         )}
@@ -283,7 +321,7 @@ export default function SessionPage() {
       {clipboardOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div
-            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            className="absolute inset-0 bg-black/60 max-sm:bg-black/70 sm:backdrop-blur-sm"
             onClick={() => setClipboardOpen(false)}
           />
           <div className="glass-card relative z-10 w-full max-w-md p-5">

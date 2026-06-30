@@ -29,7 +29,7 @@ export default function Layout({
         <div className="absolute -right-20 bottom-0 h-80 w-80 rounded-full bg-blue-500/5 blur-3xl" />
       </div>
 
-      <header className="relative z-20 border-b border-bastion-800/80 bg-bastion-950/80 backdrop-blur-md">
+      <header className="relative z-20 border-b border-bastion-800/80 bg-bastion-950 sm:bg-bastion-950/80 sm:backdrop-blur-md">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 sm:px-6">
           <Link to="/" className="group flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gradient-to-br from-bastion-accent to-bastion-accent-dim shadow-glow">

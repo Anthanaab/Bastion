@@ -25,24 +25,34 @@ export function clearToken(): void {
 
 async function request<T>(
   path: string,
-  options: RequestInit = {}
+  options: RequestInit & { timeoutMs?: number } = {}
 ): Promise<T> {
+  const { timeoutMs = 30_000, ...fetchOptions } = options;
   const token = getToken();
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
-    ...(options.headers as Record<string, string>),
+    ...(fetchOptions.headers as Record<string, string>),
   };
   if (token) headers.Authorization = `Bearer ${token}`;
+
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
 
   let res: Response;
   try {
     res = await fetch(`/api${path}`, {
-      ...options,
+      ...fetchOptions,
       headers,
       credentials: "include",
+      signal: controller.signal,
     });
-  } catch {
+  } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") {
+      throw new Error("Délai dépassé — connexion lente ou serveur injoignable");
+    }
     throw new Error("Serveur injoignable — vérifiez la connexion réseau");
+  } finally {
+    window.clearTimeout(timer);
   }
 
   if (!res.ok) {
@@ -178,6 +188,7 @@ export const api = {
     request<{ ok: boolean; version: string; wsPath: string }>("/sessions/ping", {
       method: "POST",
       body: JSON.stringify({ hostId }),
+      timeoutMs: 12_000,
     }),
 
   changePassword: (currentPassword: string, newPassword: string) =>
