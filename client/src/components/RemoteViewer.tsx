@@ -357,6 +357,9 @@ export default function RemoteViewer({
       };
 
       const handleViewportChange = () => {
+        if (isMobileViewport()) {
+          pushDisplaySize();
+        }
         scale();
         if (resizeDebounce) clearTimeout(resizeDebounce);
         const delay = isMobileViewport() ? 120 : 300;
@@ -365,7 +368,7 @@ export default function RemoteViewer({
           pushDisplaySize();
           scale();
           if (isMobileViewport()) {
-            for (const retry of [350, 800]) {
+            for (const retry of [250, 500, 1000, 1600]) {
               window.setTimeout(() => {
                 pushDisplaySize();
                 scale();
@@ -549,7 +552,7 @@ export default function RemoteViewer({
       {touchUi && !error && !manualReconnect && (
         <p className="pointer-events-none absolute bottom-2 left-0 right-0 px-3 text-center text-[10px] text-slate-500 sm:hidden">
           {isMobileViewport()
-            ? "Paysage : bureau pleine largeur · touchez pour cliquer"
+            ? "Bureau adapté à l'écran · touchez pour cliquer"
             : "Touchez pour cliquer · glisser pour déplacer · appui long = clic droit"}
         </p>
       )}

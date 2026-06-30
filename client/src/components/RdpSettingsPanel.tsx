@@ -111,8 +111,8 @@ export default function RdpSettingsPanel({
                 <span>
                   <span className="block text-sm text-slate-200">Automatique</span>
                   <span className="block text-xs text-slate-500">
-                    Sur mobile : le bureau remplit la largeur en paysage
-                    (plein écran recommandé).
+                    Sur mobile : résolution = taille de l&apos;écran visible
+                    (mode auto, plein écran paysage).
                   </span>
                 </span>
               </label>

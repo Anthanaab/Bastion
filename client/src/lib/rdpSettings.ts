@@ -56,8 +56,10 @@ export function measureViewport(container: HTMLElement | null): {
   if (isMobileViewport()) {
     let width = Math.round(vv?.width ?? window.innerWidth);
     let height = Math.round(vv?.height ?? window.innerHeight);
-    if (containerWidth > 0) width = Math.max(width, containerWidth);
-    if (containerHeight > 0) height = Math.max(height, containerHeight);
+    if ((width < 64 || height < 64) && containerWidth > 0 && containerHeight > 0) {
+      width = containerWidth;
+      height = containerHeight;
+    }
     return alignToOrientation(width, height, landscape);
   }
 
@@ -70,7 +72,7 @@ export function measureViewport(container: HTMLElement | null): {
   return alignToOrientation(width, height, landscape);
 }
 
-/** Facteur d'échelle Guacamole — paysage mobile : remplir la largeur (pas de bandes latérales) */
+/** Facteur d'échelle Guacamole — mobile : jamais d'agrandissement (évite le zoom en plein écran) */
 export function computeDisplayScale(
   viewport: { width: number; height: number },
   display: { width: number; height: number },
@@ -82,11 +84,7 @@ export function computeDisplayScale(
 
   const widthRatio = vw / dw;
   const heightRatio = vh / dh;
-  const landscape = vw > vh;
 
-  if ((options.mobile || options.coarse) && landscape) {
-    return widthRatio;
-  }
   if (options.mobile || options.coarse) {
     return Math.min(widthRatio, heightRatio, 1);
   }
