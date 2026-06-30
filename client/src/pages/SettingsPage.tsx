@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
-import Layout from "../components/Layout";
 import GroupsPanel from "../components/GroupsPanel";
+import InlineAlert from "../components/InlineAlert";
+import Layout from "../components/Layout";
+import Spinner from "../components/Spinner";
 import TotpQrCode from "../components/TotpQrCode";
 import { useAuth } from "../context/AuthContext";
 import { api } from "../lib/api";
@@ -44,7 +46,10 @@ function OperatorHostAccess({
     () => new Set(user.groupIds ?? [])
   );
   const [saving, setSaving] = useState(false);
-  const [msg, setMsg] = useState("");
+  const [feedback, setFeedback] = useState<{
+    text: string;
+    variant: "success" | "error";
+  } | null>(null);
 
   useEffect(() => {
     setAllAccess(user.allowedHostIds === null);
@@ -63,16 +68,19 @@ function OperatorHostAccess({
 
   const save = async () => {
     setSaving(true);
-    setMsg("");
+    setFeedback(null);
     try {
       await api.updateUser(user.id, {
         allowedHostIds: allAccess ? null : [...selected],
         groupIds: [...groupIds],
       });
-      setMsg("Accès enregistré");
+      setFeedback({ text: "Accès enregistré", variant: "success" });
       onSaved();
     } catch (err) {
-      setMsg(err instanceof Error ? err.message : "Erreur");
+      setFeedback({
+        text: err instanceof Error ? err.message : "Erreur",
+        variant: "error",
+      });
     } finally {
       setSaving(false);
     }
@@ -94,7 +102,7 @@ function OperatorHostAccess({
       <label className="mb-3 flex cursor-pointer items-center gap-2 text-sm text-slate-300">
         <input
           type="checkbox"
-          className="rounded border-bastion-600"
+          className="checkbox-accent"
           checked={allAccess}
           onChange={(e) => setAllAccess(e.target.checked)}
         />
@@ -106,9 +114,10 @@ function OperatorHostAccess({
           <div className="space-y-1">
             {groups.map((g) => (
               <label key={g.id} className="flex items-center gap-2 text-sm text-slate-400">
-                <input
-                  type="checkbox"
-                  checked={groupIds.has(g.id)}
+              <input
+                type="checkbox"
+                className="checkbox-accent"
+                checked={groupIds.has(g.id)}
                   onChange={() =>
                     setGroupIds((prev) => {
                       const next = new Set(prev);
@@ -133,7 +142,7 @@ function OperatorHostAccess({
             >
               <input
                 type="checkbox"
-                className="rounded border-bastion-600"
+                className="checkbox-accent"
                 checked={selected.has(host.id)}
                 onChange={() => toggleHost(host.id)}
               />
@@ -154,7 +163,11 @@ function OperatorHostAccess({
       >
         {saving ? "Enregistrement…" : "Enregistrer l'accès"}
       </button>
-      {msg && <p className="mt-2 text-xs text-bastion-glow">{msg}</p>}
+      {feedback && (
+        <InlineAlert variant={feedback.variant} className="mt-2 py-2 text-xs">
+          {feedback.text}
+        </InlineAlert>
+      )}
     </div>
   );
 }
@@ -186,7 +199,7 @@ function CreateUserHostAccess({
       <label className="mb-2 flex cursor-pointer items-center gap-2 text-sm text-slate-300">
         <input
           type="checkbox"
-          className="rounded border-bastion-600"
+          className="checkbox-accent"
           checked={allAccess}
           onChange={(e) => onAllAccessChange(e.target.checked)}
         />
@@ -202,7 +215,7 @@ function CreateUserHostAccess({
             >
               <input
                 type="checkbox"
-                className="rounded border-bastion-600"
+                className="checkbox-accent"
                 checked={groupIds.has(g.id)}
                 onChange={() => onToggleGroup(g.id)}
               />
@@ -220,7 +233,7 @@ function CreateUserHostAccess({
             >
               <input
                 type="checkbox"
-                className="rounded border-bastion-600"
+                className="checkbox-accent"
                 checked={selected.has(host.id)}
                 onChange={() => onToggle(host.id)}
               />
@@ -238,41 +251,53 @@ function TotpSettings() {
   const [setup, setSetup] = useState<{ secret: string; uri: string } | null>(null);
   const [code, setCode] = useState("");
   const [password, setPassword] = useState("");
-  const [msg, setMsg] = useState("");
+  const [feedback, setFeedback] = useState<{
+    text: string;
+    variant: "success" | "error";
+  } | null>(null);
 
   if (!user) return null;
 
   const startSetup = async () => {
-    setMsg("");
+    setFeedback(null);
     try {
       setSetup(await api.totpSetup());
     } catch (err) {
-      setMsg(err instanceof Error ? err.message : "Erreur");
+      setFeedback({
+        text: err instanceof Error ? err.message : "Erreur",
+        variant: "error",
+      });
     }
   };
 
   const confirm = async () => {
-    setMsg("");
+    setFeedback(null);
     try {
       await api.totpConfirm(code);
       setSetup(null);
       setCode("");
-      setMsg("2FA activée");
+      setFeedback({ text: "2FA activée", variant: "success" });
       await refreshMe();
     } catch (err) {
-      setMsg(err instanceof Error ? err.message : "Erreur");
+      setFeedback({
+        text: err instanceof Error ? err.message : "Erreur",
+        variant: "error",
+      });
     }
   };
 
   const disable = async () => {
-    setMsg("");
+    setFeedback(null);
     try {
       await api.totpDisable(password);
       setPassword("");
-      setMsg("2FA désactivée");
+      setFeedback({ text: "2FA désactivée", variant: "success" });
       await refreshMe();
     } catch (err) {
-      setMsg(err instanceof Error ? err.message : "Erreur");
+      setFeedback({
+        text: err instanceof Error ? err.message : "Erreur",
+        variant: "error",
+      });
     }
   };
 
@@ -284,7 +309,11 @@ function TotpSettings() {
       <p className="mb-4 text-sm text-slate-400">
         Protégez votre compte avec une application Authenticator.
       </p>
-      {msg && <p className="mb-3 text-sm text-bastion-glow">{msg}</p>}
+      {feedback && (
+        <InlineAlert variant={feedback.variant} className="mb-3">
+          {feedback.text}
+        </InlineAlert>
+      )}
       {user.totpEnabled ? (
         <div className="space-y-3">
           <p className="text-sm text-emerald-400">2FA activée sur ce compte.</p>
@@ -349,7 +378,10 @@ export default function SettingsPage() {
   const [newUserAllAccess, setNewUserAllAccess] = useState(false);
   const [newUserHosts, setNewUserHosts] = useState<Set<string>>(new Set());
   const [newUserGroups, setNewUserGroups] = useState<Set<string>>(new Set());
-  const [userMsg, setUserMsg] = useState("");
+  const [userFeedback, setUserFeedback] = useState<{
+    text: string;
+    variant: "success" | "error";
+  } | null>(null);
 
   const loadUsers = async () => {
     if (!isAdmin) return;
@@ -402,7 +434,7 @@ export default function SettingsPage() {
 
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
-    setUserMsg("");
+    setUserFeedback(null);
     try {
       const allowedHostIds =
         newUserRole === "admin"
@@ -423,21 +455,27 @@ export default function SettingsPage() {
       setNewUserAllAccess(false);
       setNewUserHosts(new Set());
       setNewUserGroups(new Set());
-      setUserMsg("Utilisateur créé");
+      setUserFeedback({ text: "Utilisateur créé", variant: "success" });
       await loadUsers();
     } catch (err) {
-      setUserMsg(err instanceof Error ? err.message : "Erreur");
+      setUserFeedback({
+        text: err instanceof Error ? err.message : "Erreur",
+        variant: "error",
+      });
     }
   };
 
   const handleRoleChange = async (id: string, role: UserRole) => {
-    setUserMsg("");
+    setUserFeedback(null);
     try {
       await api.updateUser(id, { role });
-      setUserMsg("Rôle mis à jour");
+      setUserFeedback({ text: "Rôle mis à jour", variant: "success" });
       await loadUsers();
     } catch (err) {
-      setUserMsg(err instanceof Error ? err.message : "Erreur");
+      setUserFeedback({
+        text: err instanceof Error ? err.message : "Erreur",
+        variant: "error",
+      });
     }
   };
 
@@ -449,26 +487,33 @@ export default function SettingsPage() {
     ) {
       return;
     }
-    setUserMsg("");
+    setUserFeedback(null);
     try {
       const res = await api.revokeUserSessions(user.id);
-      setUserMsg(
-        `Sessions révoquées pour ${user.username} (${res.revoked} connexion(s))`
-      );
+      setUserFeedback({
+        text: `Sessions révoquées pour ${user.username} (${res.revoked} connexion(s))`,
+        variant: "success",
+      });
     } catch (err) {
-      setUserMsg(err instanceof Error ? err.message : "Erreur");
+      setUserFeedback({
+        text: err instanceof Error ? err.message : "Erreur",
+        variant: "error",
+      });
     }
   };
 
   const handleDeleteUser = async (user: UserAccount) => {
     if (!confirm(`Supprimer l'utilisateur « ${user.username} » ?`)) return;
-    setUserMsg("");
+    setUserFeedback(null);
     try {
       await api.deleteUser(user.id);
-      setUserMsg("Utilisateur supprimé");
+      setUserFeedback({ text: "Utilisateur supprimé", variant: "success" });
       await loadUsers();
     } catch (err) {
-      setUserMsg(err instanceof Error ? err.message : "Erreur");
+      setUserFeedback({
+        text: err instanceof Error ? err.message : "Erreur",
+        variant: "error",
+      });
     }
   };
 
@@ -502,14 +547,14 @@ export default function SettingsPage() {
           </p>
 
           {error && (
-            <div className="mb-4 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+            <InlineAlert variant="error" className="mb-4">
               {error}
-            </div>
+            </InlineAlert>
           )}
           {success && (
-            <div className="mb-4 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">
+            <InlineAlert variant="success" className="mb-4">
               {success}
-            </div>
+            </InlineAlert>
           )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -577,12 +622,16 @@ export default function SettingsPage() {
               autorisées uniquement.
             </p>
 
-            {userMsg && (
-              <p className="mb-4 text-sm text-bastion-glow">{userMsg}</p>
+            {userFeedback && (
+              <InlineAlert variant={userFeedback.variant} className="mb-4">
+                {userFeedback.text}
+              </InlineAlert>
             )}
 
             {usersLoading ? (
-              <p className="text-sm text-slate-500">Chargement…</p>
+              <div className="flex justify-center py-8">
+                <Spinner className="h-6 w-6" />
+              </div>
             ) : (
               <ul className="mb-6 divide-y divide-bastion-800">
                 {users.map((user) => (
@@ -609,7 +658,7 @@ export default function SettingsPage() {
                           type="button"
                           onClick={() => void handleRevokeSessions(user)}
                           className="btn-secondary px-2 text-xs"
-                          title="Révoquer les sessions"
+                          aria-label={`Révoquer les sessions de ${user.username}`}
                         >
                           ⏻
                         </button>
@@ -617,7 +666,7 @@ export default function SettingsPage() {
                           type="button"
                           onClick={() => handleDeleteUser(user)}
                           className="btn-secondary px-3 text-red-400"
-                          title="Supprimer"
+                          aria-label={`Supprimer ${user.username}`}
                         >
                           ✕
                         </button>

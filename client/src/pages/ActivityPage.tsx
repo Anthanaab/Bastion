@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import InlineAlert from "../components/InlineAlert";
 import Layout from "../components/Layout";
+import { ProtocolBadge } from "../components/ProtocolBadge";
+import Spinner from "../components/Spinner";
 import { useAuth } from "../context/AuthContext";
 import { api } from "../lib/api";
 import type { AuditRecord, LiveSessionRecord, Protocol, SessionRecord } from "../types";
-import { ProtocolBadge } from "../components/ProtocolBadge";
 
 function formatWhen(iso: string): string {
   return new Date(iso).toLocaleString("fr-FR", {
@@ -49,6 +51,16 @@ function actionLabel(action: string): string {
   return labels[action] ?? action;
 }
 
+function EmptyState({ icon, title, description }: { icon: string; title: string; description: string }) {
+  return (
+    <div className="empty-state p-8">
+      <div className="mb-3 text-3xl opacity-40">{icon}</div>
+      <p className="font-medium text-white">{title}</p>
+      <p className="mt-1 max-w-sm text-sm text-slate-400">{description}</p>
+    </div>
+  );
+}
+
 export default function ActivityPage() {
   const { isAdmin } = useAuth();
   const [tab, setTab] = useState<"sessions" | "live" | "audit">("sessions");
@@ -56,6 +68,7 @@ export default function ActivityPage() {
   const [live, setLive] = useState<LiveSessionRecord[]>([]);
   const [audit, setAudit] = useState<AuditRecord[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
 
   const load = async () => {
     const [s, a] = await Promise.all([api.sessions(80), api.audit(120)]);
@@ -67,8 +80,13 @@ export default function ActivityPage() {
   };
 
   useEffect(() => {
+    setLoadError("");
     load()
-      .catch(console.error)
+      .catch((err) => {
+        setLoadError(
+          err instanceof Error ? err.message : "Impossible de charger l'activité"
+        );
+      })
       .finally(() => setLoading(false));
   }, []);
 
@@ -101,57 +119,69 @@ export default function ActivityPage() {
         </button>
       </div>
 
+      {loadError && (
+        <InlineAlert variant="error" className="mb-6">
+          {loadError}
+        </InlineAlert>
+      )}
+
       {loading ? (
         <div className="flex justify-center py-20">
-          <div className="h-8 w-8 animate-spin rounded-full border-2 border-bastion-accent border-t-transparent" />
+          <Spinner />
         </div>
       ) : tab === "live" && isAdmin ? (
         <div className="glass-card overflow-hidden">
           {live.length === 0 ? (
-            <p className="p-8 text-center text-sm text-slate-400">
-              Aucune session distante active.
-            </p>
+            <EmptyState
+              icon="📡"
+              title="Aucune session active"
+              description="Les connexions distantes en cours apparaîtront ici."
+            />
           ) : (
-            <table className="w-full text-left text-sm">
-              <thead className="border-b border-bastion-700 bg-bastion-900/50 text-xs uppercase text-slate-500">
-                <tr>
-                  <th className="px-4 py-3">Machine</th>
-                  <th className="px-4 py-3">Utilisateur</th>
-                  <th className="px-4 py-3">Protocole</th>
-                  <th className="px-4 py-3" />
-                </tr>
-              </thead>
-              <tbody>
-                {live.map((row) => (
-                  <tr key={row.sessionId} className="border-b border-bastion-800/80">
-                    <td className="px-4 py-3 text-white">{row.hostName}</td>
-                    <td className="px-4 py-3 text-slate-400">{row.username}</td>
-                    <td className="px-4 py-3">
-                      <ProtocolBadge protocol={row.protocol} />
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <button
-                        type="button"
-                        className="btn-secondary text-xs text-red-400"
-                        onClick={() =>
-                          api.terminateSession(row.sessionId).then(() => load())
-                        }
-                      >
-                        Couper
-                      </button>
-                    </td>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[520px] text-left text-sm">
+                <thead className="border-b border-bastion-700 bg-bastion-900/50 text-xs uppercase text-slate-500">
+                  <tr>
+                    <th className="px-4 py-3">Machine</th>
+                    <th className="px-4 py-3">Utilisateur</th>
+                    <th className="px-4 py-3">Protocole</th>
+                    <th className="px-4 py-3" />
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {live.map((row) => (
+                    <tr key={row.sessionId} className="border-b border-bastion-800/80 hover:bg-bastion-900/40">
+                      <td className="px-4 py-3 text-white">{row.hostName}</td>
+                      <td className="px-4 py-3 text-slate-400">{row.username}</td>
+                      <td className="px-4 py-3">
+                        <ProtocolBadge protocol={row.protocol} />
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <button
+                          type="button"
+                          className="btn-secondary text-xs text-red-400"
+                          onClick={() =>
+                            api.terminateSession(row.sessionId).then(() => load())
+                          }
+                        >
+                          Couper
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
       ) : tab === "sessions" ? (
         <div className="glass-card overflow-hidden">
           {sessions.length === 0 ? (
-            <p className="p-8 text-center text-sm text-slate-400">
-              Aucune session enregistrée pour l'instant.
-            </p>
+            <EmptyState
+              icon="🕐"
+              title="Aucune session enregistrée"
+              description="L'historique de vos connexions distantes s'affichera ici."
+            />
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full min-w-[640px] text-left text-sm">
@@ -200,9 +230,11 @@ export default function ActivityPage() {
       ) : (
         <div className="glass-card overflow-hidden">
           {audit.length === 0 ? (
-            <p className="p-8 text-center text-sm text-slate-400">
-              Journal vide.
-            </p>
+            <EmptyState
+              icon="📋"
+              title="Journal vide"
+              description="Les actions administratives et connexions seront journalisées ici."
+            />
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full min-w-[640px] text-left text-sm">

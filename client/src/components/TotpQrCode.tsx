@@ -14,7 +14,14 @@ export default function TotpQrCode({ uri }: { uri: string }) {
     };
   }, [uri]);
 
-  if (!dataUrl) return null;
+  if (!dataUrl) {
+    return (
+      <div
+        className="skeleton mx-auto h-[200px] w-[200px] rounded-lg"
+        aria-hidden
+      />
+    );
+  }
 
   return (
     <img

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import type { Host } from "../types";
 import { api } from "../lib/api";
+import InlineAlert from "./InlineAlert";
 import { ProtocolBadge, protocolIcon } from "./ProtocolBadge";
 
 interface HostCardProps {
@@ -26,7 +27,10 @@ export default function HostCard({
   onTagClick,
 }: HostCardProps) {
   const [waking, setWaking] = useState(false);
-  const [wakeMsg, setWakeMsg] = useState("");
+  const [wakeFeedback, setWakeFeedback] = useState<{
+    text: string;
+    variant: "success" | "error" | "info";
+  } | null>(null);
   const [readyToConnect, setReadyToConnect] = useState(false);
 
   const tags = host.tags
@@ -35,23 +39,30 @@ export default function HostCard({
 
   const handleWake = async () => {
     setWaking(true);
-    setWakeMsg("");
+    setWakeFeedback(null);
     setReadyToConnect(false);
     try {
       const result = await api.wakeHost(host.id, true);
       if (result.online) {
-        setWakeMsg("Machine en ligne — vous pouvez vous connecter");
+        setWakeFeedback({
+          text: "Machine en ligne — vous pouvez vous connecter",
+          variant: "success",
+        });
         setReadyToConnect(true);
       } else {
-        setWakeMsg(
-          result.hint
+        setWakeFeedback({
+          text: result.hint
             ? `Paquet envoyé. ${result.hint}`
-            : "Démarrage en cours — la machine n'est pas encore en ligne"
-        );
+            : "Démarrage en cours — la machine n'est pas encore en ligne",
+          variant: "info",
+        });
       }
-      setTimeout(() => setWakeMsg(""), 12000);
+      setTimeout(() => setWakeFeedback(null), 12000);
     } catch (err) {
-      setWakeMsg(err instanceof Error ? err.message : "Échec WoL");
+      setWakeFeedback({
+        text: err instanceof Error ? err.message : "Échec WoL",
+        variant: "error",
+      });
     } finally {
       setWaking(false);
     }
@@ -80,6 +91,7 @@ export default function HostCard({
                       online ? "bg-emerald-400" : "bg-red-500"
                     }`}
                     title={online ? "En ligne" : "Hors ligne"}
+                    aria-label={online ? "En ligne" : "Hors ligne"}
                   />
                 )}
                 {onTogglePin && (
@@ -87,7 +99,7 @@ export default function HostCard({
                     type="button"
                     onClick={onTogglePin}
                     className={`text-sm ${pinned ? "text-bastion-accent" : "text-slate-600 hover:text-slate-400"}`}
-                    title={pinned ? "Retirer des favoris" : "Épingler"}
+                    aria-label={pinned ? "Retirer des favoris" : "Épingler"}
                   >
                     {pinned ? "★" : "☆"}
                   </button>
@@ -130,7 +142,11 @@ export default function HostCard({
           </div>
         )}
 
-        {wakeMsg && <p className="mb-3 text-xs text-bastion-glow">{wakeMsg}</p>}
+        {wakeFeedback && (
+          <InlineAlert variant={wakeFeedback.variant} className="mb-3 py-2 text-xs">
+            {wakeFeedback.text}
+          </InlineAlert>
+        )}
 
         <div className="flex flex-wrap gap-2">
           <Link
@@ -151,13 +167,17 @@ export default function HostCard({
           )}
           {canManage && (
             <>
-              <button onClick={() => onEdit(host)} className="btn-secondary px-3" title="Modifier">
+              <button
+                onClick={() => onEdit(host)}
+                className="btn-secondary px-3"
+                aria-label="Modifier"
+              >
                 ✎
               </button>
               <button
                 onClick={() => onDelete(host)}
                 className="btn-secondary px-3 text-red-400 hover:border-red-500/40"
-                title="Supprimer"
+                aria-label="Supprimer"
               >
                 ✕
               </button>

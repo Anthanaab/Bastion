@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import Layout from "../components/Layout";
 import HostCard from "../components/HostCard";
 import HostForm from "../components/HostForm";
+import InlineAlert from "../components/InlineAlert";
+import Layout from "../components/Layout";
+import Spinner from "../components/Spinner";
 import StatusToast from "../components/StatusToast";
 import { useAuth } from "../context/AuthContext";
 import { api } from "../lib/api";
@@ -30,7 +32,8 @@ function Modal({
           <h2 className="text-lg font-semibold text-white">{title}</h2>
           <button
             onClick={onClose}
-            className="rounded-lg p-1 text-slate-400 hover:bg-bastion-800 hover:text-white"
+            className="btn-icon"
+            aria-label="Fermer"
           >
             ✕
           </button>
@@ -70,11 +73,15 @@ export default function DashboardPage() {
   const [hosts, setHosts] = useState<Host[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<string>("all");
   const [tagFilter, setTagFilter] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
-  const [importMsg, setImportMsg] = useState("");
+  const [importFeedback, setImportFeedback] = useState<{
+    text: string;
+    variant: "success" | "error";
+  } | null>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
   const [editingHost, setEditingHost] = useState<Host | null>(null);
   const [hostStatus, setHostStatus] = useState<Record<string, boolean>>({});
@@ -116,8 +123,13 @@ export default function DashboardPage() {
   };
 
   useEffect(() => {
+    setLoadError("");
     load()
-      .catch(console.error)
+      .catch((err) => {
+        setLoadError(
+          err instanceof Error ? err.message : "Impossible de charger les machines"
+        );
+      })
       .finally(() => setLoading(false));
   }, []);
 
@@ -210,10 +222,11 @@ export default function DashboardPage() {
     );
 
     const result = await api.importHosts(replace ? "replace" : "merge", hosts);
-    setImportMsg(
-      `Import OK — ${result.created} créé(s), ${result.updated} mis à jour`
-    );
-    setTimeout(() => setImportMsg(""), 5000);
+    setImportFeedback({
+      text: `Import OK — ${result.created} créé(s), ${result.updated} mis à jour`,
+      variant: "success",
+    });
+    setTimeout(() => setImportFeedback(null), 5000);
     await load();
   };
 
@@ -225,17 +238,38 @@ export default function DashboardPage() {
           setNotifications((n) => n.filter((item) => item.id !== id))
         }
       />
-      {stats && (
-        <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4 animate-fade-in">
-          <StatCard label="Machines" value={stats.totalHosts} accent="#f59e0b" />
-          <StatCard
-            label="Sessions actives"
-            value={stats.activeSessions}
-            accent="#10b981"
-          />
-          <StatCard label="SSH" value={stats.byProtocol.ssh ?? 0} accent="#34d399" />
-          <StatCard label="RDP / VNC" value={(stats.byProtocol.rdp ?? 0) + (stats.byProtocol.vnc ?? 0)} accent="#60a5fa" />
+      {loading ? (
+        <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="glass-card p-5">
+              <div className="skeleton mb-3 h-3 w-20" />
+              <div className="skeleton h-8 w-16" />
+            </div>
+          ))}
         </div>
+      ) : (
+        stats && (
+          <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4 animate-fade-in">
+            <StatCard label="Machines" value={stats.totalHosts} accent="#f59e0b" />
+            <StatCard
+              label="Sessions actives"
+              value={stats.activeSessions}
+              accent="#10b981"
+            />
+            <StatCard label="SSH" value={stats.byProtocol.ssh ?? 0} accent="#34d399" />
+            <StatCard
+              label="RDP / VNC"
+              value={(stats.byProtocol.rdp ?? 0) + (stats.byProtocol.vnc ?? 0)}
+              accent="#60a5fa"
+            />
+          </div>
+        )
+      )}
+
+      {loadError && (
+        <InlineAlert variant="error" className="mb-6">
+          {loadError}
+        </InlineAlert>
       )}
 
       <div className="mb-6 flex flex-col gap-4">
@@ -266,8 +300,8 @@ export default function DashboardPage() {
           <div className="flex shrink-0 flex-wrap gap-2">
             <button
               onClick={refreshHostStatus}
-              className="btn-secondary"
-              title="Actualiser le statut réseau"
+              className="btn-secondary px-3"
+              aria-label="Actualiser le statut réseau"
             >
               ↻
             </button>
@@ -297,17 +331,20 @@ export default function DashboardPage() {
                 e.target.value = "";
                 if (!file) return;
                 handleImportFile(file).catch((err) => {
-                  setImportMsg(
-                    err instanceof Error ? err.message : "Import échoué"
-                  );
+                  setImportFeedback({
+                    text: err instanceof Error ? err.message : "Import échoué",
+                    variant: "error",
+                  });
                 });
               }}
             />
           </div>
         </div>
 
-        {importMsg && (
-          <p className="text-sm text-bastion-glow">{importMsg}</p>
+        {importFeedback && (
+          <InlineAlert variant={importFeedback.variant}>
+            {importFeedback.text}
+          </InlineAlert>
         )}
 
         {allTags.length > 0 && (
@@ -342,7 +379,7 @@ export default function DashboardPage() {
 
       {loading ? (
         <div className="flex justify-center py-20">
-          <div className="h-8 w-8 animate-spin rounded-full border-2 border-bastion-accent border-t-transparent" />
+          <Spinner />
         </div>
       ) : filtered.length === 0 ? (
         <div className="glass-card flex flex-col items-center justify-center py-20 text-center">

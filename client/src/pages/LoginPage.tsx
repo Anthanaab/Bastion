@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { Navigate } from "react-router-dom";
+import InlineAlert from "../components/InlineAlert";
+import Spinner from "../components/Spinner";
 import { useAuth } from "../context/AuthContext";
 
 export default function LoginPage() {
@@ -14,7 +16,7 @@ export default function LoginPage() {
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-bastion-950">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-bastion-accent border-t-transparent" />
+        <Spinner />
       </div>
     );
   }
@@ -59,11 +61,7 @@ export default function LoginPage() {
 
         <div className="glass-card p-8">
           <form onSubmit={handleSubmit} className="space-y-5">
-            {error && (
-              <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
-                {error}
-              </div>
-            )}
+            {error && <InlineAlert variant="error">{error}</InlineAlert>}
 
             {!challenge ? (
               <>
