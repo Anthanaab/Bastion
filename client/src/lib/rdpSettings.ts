@@ -21,6 +21,10 @@ export const RDP_MAX_WIDTH = 3840;
 export const RDP_MIN_HEIGHT = 240;
 export const RDP_MAX_HEIGHT = 2160;
 
+/** Résolution minimale du grand côté en mode auto mobile (bureau virtuel plus détaillé) */
+export const MOBILE_RDP_MIN_MAJOR = 1280;
+const MOBILE_RDP_DPR_CAP = 2;
+
 export function isMobileViewport(): boolean {
   return window.matchMedia("(max-width: 768px), (pointer: coarse)").matches;
 }
@@ -87,6 +91,35 @@ export function measureViewport(container: HTMLElement | null): {
     height = Math.round(vv?.height ?? window.innerHeight);
   }
   return normalizeMobileSize(width, height, landscape);
+}
+
+function clampRdpSize(width: number, height: number): { width: number; height: number } {
+  return {
+    width: Math.min(RDP_MAX_WIDTH, Math.max(RDP_MIN_WIDTH, Math.round(width))),
+    height: Math.min(RDP_MAX_HEIGHT, Math.max(RDP_MIN_HEIGHT, Math.round(height))),
+  };
+}
+
+/** Bureau virtuel mobile plus grand que l'écran — affiché réduit pour netteté et confort */
+export function boostMobileRdpResolution(measured: {
+  width: number;
+  height: number;
+}): { width: number; height: number } {
+  const dpr = Math.min(
+    MOBILE_RDP_DPR_CAP,
+    Math.max(1, window.devicePixelRatio || 1)
+  );
+  let width = measured.width * dpr;
+  let height = measured.height * dpr;
+
+  const major = Math.max(width, height);
+  if (major < MOBILE_RDP_MIN_MAJOR) {
+    const boost = MOBILE_RDP_MIN_MAJOR / major;
+    width *= boost;
+    height *= boost;
+  }
+
+  return clampRdpSize(width, height);
 }
 
 /** Facteur d'échelle Guacamole — mobile : jamais d'agrandissement (évite le zoom en plein écran) */
@@ -203,18 +236,16 @@ export function resolveRdpResolution(
   }
 
   const measured = measureViewport(container);
-  const fallbackWidth = isMobileViewport() ? 390 : DEFAULT_RDP_DISPLAY_SETTINGS.width;
-  const fallbackHeight = isMobileViewport() ? 844 : DEFAULT_RDP_DISPLAY_SETTINGS.height;
-  return {
-    width: Math.min(
-      RDP_MAX_WIDTH,
-      Math.max(RDP_MIN_WIDTH, measured.width || fallbackWidth)
-    ),
-    height: Math.min(
-      RDP_MAX_HEIGHT,
-      Math.max(RDP_MIN_HEIGHT, measured.height || fallbackHeight)
-    ),
-  };
+  if (isMobileViewport()) {
+    return boostMobileRdpResolution(measured);
+  }
+
+  const fallbackWidth = DEFAULT_RDP_DISPLAY_SETTINGS.width;
+  const fallbackHeight = DEFAULT_RDP_DISPLAY_SETTINGS.height;
+  return clampRdpSize(
+    measured.width || fallbackWidth,
+    measured.height || fallbackHeight
+  );
 }
 
 export function rdpSettingsSignature(settings: RdpDisplaySettings): string {

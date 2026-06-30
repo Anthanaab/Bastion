@@ -617,7 +617,7 @@ export default function RemoteViewer({
       {touchUi && !error && !manualReconnect && (
         <p className="pointer-events-none absolute bottom-2 left-0 right-0 px-3 text-center text-[10px] text-slate-500 sm:hidden">
           {isMobileViewport()
-            ? "Bureau adapté à l'écran · touchez pour cliquer"
+            ? "Bureau HD adapté à l'écran · touchez pour cliquer"
             : "Touchez pour cliquer · glisser pour déplacer · appui long = clic droit"}
         </p>
       )}

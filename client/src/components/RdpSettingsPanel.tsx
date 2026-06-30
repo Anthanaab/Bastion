@@ -111,8 +111,8 @@ export default function RdpSettingsPanel({
                 <span>
                   <span className="block text-sm text-slate-200">Automatique</span>
                   <span className="block text-xs text-slate-500">
-                    Sur mobile : résolution = taille de l&apos;écran visible
-                    (mode auto, plein écran paysage).
+                    Sur mobile : bureau virtuel haute définition (min. 1280 px),
+                    affiché réduit à l&apos;écran visible.
                   </span>
                 </span>
               </label>
