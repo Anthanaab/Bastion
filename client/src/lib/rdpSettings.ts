@@ -90,7 +90,7 @@ export function measureViewport(container: HTMLElement | null): {
     width = Math.round(vv?.width ?? window.innerWidth);
     height = Math.round(vv?.height ?? window.innerHeight);
   }
-  return normalizeMobileSize(width, height, landscape);
+  return { width, height };
 }
 
 function clampRdpSize(width: number, height: number): { width: number; height: number } {
