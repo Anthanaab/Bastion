@@ -62,6 +62,11 @@ declare module "guacamole-common-js" {
     onkeyup: ((keysym: number) => void) | null;
   }
 
+  export class InputSink {
+    focus(): void;
+    getElement(): HTMLTextAreaElement;
+  }
+
   export class InputStream {
     index: number;
   }

@@ -48,10 +48,11 @@ const MOUSE_EVENTS = ["mousedown", "mousemove", "mouseup"] as const;
 
 function attachPointerInput(
   client: Guacamole.Client,
-  element: HTMLElement
+  element: HTMLElement,
+  onActivate?: () => void
 ): { detach: () => void } {
   const handler = (event: Guacamole.Mouse.Event) => {
-    element.focus({ preventScroll: true });
+    onActivate?.();
     client.getDisplay().showCursor(true);
     client.sendMouseState(event.state, true);
   };
@@ -65,6 +66,67 @@ function attachPointerInput(
   return {
     detach: () => {
       input.offEach([...MOUSE_EVENTS], handler);
+    },
+  };
+}
+
+function prepareMobileInputSink(sink: Guacamole.InputSink): HTMLTextAreaElement {
+  const field = sink.getElement();
+  field.setAttribute("autocomplete", "off");
+  field.setAttribute("autocorrect", "off");
+  field.setAttribute("autocapitalize", "off");
+  field.setAttribute("spellcheck", "false");
+  field.setAttribute("inputmode", "text");
+  field.setAttribute("aria-hidden", "true");
+  field.tabIndex = -1;
+  field.style.height = "1px";
+  field.style.width = "1px";
+  field.style.fontSize = "16px";
+  field.style.zIndex = "5";
+  field.style.opacity = "0";
+  return field;
+}
+
+function attachKeyboardInput(
+  client: Guacamole.Client,
+  displayElement: HTMLElement,
+  container: HTMLElement
+): { detach: () => void; focus: () => void } {
+  const mobile = isCoarsePointer();
+  let inputSink: Guacamole.InputSink | null = null;
+  let keyboardTarget: HTMLElement | Document = displayElement;
+
+  if (mobile) {
+    inputSink = new Guacamole.InputSink();
+    const sinkField = prepareMobileInputSink(inputSink);
+    container.appendChild(sinkField);
+    keyboardTarget = sinkField;
+  }
+
+  const keyboard = new Guacamole.Keyboard(keyboardTarget);
+  keyboard.onkeydown = (keysym: number) => client.sendKeyEvent(1, keysym);
+  keyboard.onkeyup = (keysym: number) => client.sendKeyEvent(0, keysym);
+
+  const focus = () => {
+    if (inputSink) {
+      inputSink.focus();
+      return;
+    }
+    displayElement.focus({ preventScroll: true });
+  };
+
+  if (!mobile) {
+    displayElement.addEventListener("mousedown", focus);
+  }
+
+  return {
+    focus,
+    detach: () => {
+      keyboard.onkeydown = keyboard.onkeyup = null;
+      if (!mobile) {
+        displayElement.removeEventListener("mousedown", focus);
+      }
+      inputSink?.getElement().remove();
     },
   };
 }
@@ -306,6 +368,7 @@ export default function RemoteViewer({
             sendCtrlAltDel: () => sendCtrlAltDel(client),
             pasteClipboard: () => pasteClipboard(client),
             pasteText: (text: string) => sendTextToRemote(client, text),
+            focusKeyboard: () => keyboardInput.focus(),
           };
         }
 
@@ -441,7 +504,12 @@ export default function RemoteViewer({
 
       viewportChangeRef.current = handleViewportChange;
 
-      const pointerInput = attachPointerInput(client, element);
+      const keyboardInput = attachKeyboardInput(
+        client,
+        element,
+        containerRef.current
+      );
+      const pointerInput = attachPointerInput(client, element, keyboardInput.focus);
 
       client.onsync = () => {
         scale();
@@ -460,14 +528,6 @@ export default function RemoteViewer({
           };
         };
       }
-
-      const keyboard = new Guacamole.Keyboard(element);
-      keyboard.onkeydown = (keysym: number) => client.sendKeyEvent(1, keysym);
-      keyboard.onkeyup = (keysym: number) => client.sendKeyEvent(0, keysym);
-
-      element.addEventListener("mousedown", () => {
-        element.focus({ preventScroll: true });
-      });
 
       tunnel.onstatechange = (state: number) => {
         if (state === Guacamole.Tunnel.State.CONNECTING) {
@@ -567,7 +627,7 @@ export default function RemoteViewer({
         window.removeEventListener("orientationchange", onOrientationChange);
         window.visualViewport?.removeEventListener("resize", handleViewportChange);
         pointerInput.detach();
-        keyboard.onkeydown = keyboard.onkeyup = null;
+        keyboardInput.detach();
         client.disconnect();
       };
     };
@@ -617,7 +677,7 @@ export default function RemoteViewer({
       {touchUi && !error && !manualReconnect && (
         <p className="pointer-events-none absolute bottom-2 left-0 right-0 px-3 text-center text-[10px] text-slate-500 sm:hidden">
           {isMobileViewport()
-            ? "Bureau HD adapté à l'écran · touchez pour cliquer"
+            ? "Touchez un champ · clavier auto · appui long = clic droit"
             : "Touchez pour cliquer · glisser pour déplacer · appui long = clic droit"}
         </p>
       )}

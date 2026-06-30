@@ -10,6 +10,7 @@ export interface RdpTools {
   sendCtrlAltDel: () => void;
   pasteClipboard: () => Promise<void>;
   pasteText: (text: string) => void;
+  focusKeyboard: () => void;
 }
 
 export interface SessionControl {

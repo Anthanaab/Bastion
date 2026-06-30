@@ -315,6 +315,16 @@ export default function SessionPage() {
             <button
               type="button"
               onClick={() => {
+                session.rdp!.focusKeyboard();
+                setMobileActionsOpen(false);
+              }}
+              className="btn-secondary w-full py-2 text-xs"
+            >
+              ⌨️ Clavier
+            </button>
+            <button
+              type="button"
+              onClick={() => {
                 session.rdp!.sendCtrlAltDel();
                 setMobileActionsOpen(false);
               }}
@@ -338,13 +348,24 @@ export default function SessionPage() {
       )}
 
       {immersive && session?.connected && (
-        <button
-          type="button"
-          onClick={toggleRdpFullscreen}
-          className="session-exit-immersive btn-primary px-4 text-xs"
-        >
-          Réduire
-        </button>
+        <div className="session-exit-immersive flex gap-2">
+          {session.rdp && (
+            <button
+              type="button"
+              onClick={() => session.rdp!.focusKeyboard()}
+              className="btn-secondary min-h-[44px] px-4 text-xs"
+            >
+              ⌨️
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={toggleRdpFullscreen}
+            className="btn-primary min-h-[44px] px-4 text-xs"
+          >
+            Réduire
+          </button>
+        </div>
       )}
 
       {clipboardMsg && (
