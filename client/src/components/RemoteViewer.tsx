@@ -77,14 +77,48 @@ function prepareMobileInputSink(sink: Guacamole.InputSink): HTMLTextAreaElement 
   field.setAttribute("autocapitalize", "off");
   field.setAttribute("spellcheck", "false");
   field.setAttribute("inputmode", "text");
-  field.setAttribute("aria-hidden", "true");
-  field.tabIndex = -1;
-  field.style.height = "1px";
-  field.style.width = "1px";
+  field.setAttribute("enterkeyhint", "done");
+  field.setAttribute("rows", "1");
+  field.tabIndex = 0;
+  field.style.position = "fixed";
+  field.style.left = "0";
+  field.style.right = "0";
+  field.style.bottom = "0";
+  field.style.width = "100%";
+  field.style.height = "48px";
+  field.style.margin = "0";
+  field.style.padding = "0";
+  field.style.border = "none";
+  field.style.outline = "none";
+  field.style.resize = "none";
   field.style.fontSize = "16px";
-  field.style.zIndex = "5";
-  field.style.opacity = "0";
+  field.style.lineHeight = "48px";
+  field.style.zIndex = "60";
+  field.style.opacity = "0.01";
+  field.style.background = "transparent";
+  field.style.color = "transparent";
+  field.style.caretColor = "transparent";
   return field;
+}
+
+const BACKSPACE_KEYSYM = 0xff08;
+
+function focusMobileField(field: HTMLTextAreaElement): void {
+  field.focus({ preventScroll: true });
+}
+
+function attachMobileDeleteHandler(
+  field: HTMLTextAreaElement,
+  client: Guacamole.Client
+): () => void {
+  const onInput = (event: Event) => {
+    const inputEvent = event as InputEvent;
+    if (!inputEvent.inputType?.startsWith("delete") || inputEvent.data) return;
+    client.sendKeyEvent(1, BACKSPACE_KEYSYM);
+    client.sendKeyEvent(0, BACKSPACE_KEYSYM);
+  };
+  field.addEventListener("input", onInput);
+  return () => field.removeEventListener("input", onInput);
 }
 
 function attachKeyboardInput(
@@ -93,14 +127,26 @@ function attachKeyboardInput(
   container: HTMLElement
 ): { detach: () => void; focus: () => void } {
   const mobile = isCoarsePointer();
-  let inputSink: Guacamole.InputSink | null = null;
+  let sinkField: HTMLTextAreaElement | null = null;
   let keyboardTarget: HTMLElement | Document = displayElement;
+  let removeDeleteHandler: (() => void) | null = null;
+  const touchActivators: Array<{
+    target: EventTarget;
+    type: string;
+    listener: EventListener;
+  }> = [];
+
+  const addTouchActivator = (target: EventTarget, type: string, listener: EventListener) => {
+    target.addEventListener(type, listener, { passive: true });
+    touchActivators.push({ target, type, listener });
+  };
 
   if (mobile) {
-    inputSink = new Guacamole.InputSink();
-    const sinkField = prepareMobileInputSink(inputSink);
-    container.appendChild(sinkField);
+    const inputSink = new Guacamole.InputSink();
+    sinkField = prepareMobileInputSink(inputSink);
+    document.body.appendChild(sinkField);
     keyboardTarget = sinkField;
+    removeDeleteHandler = attachMobileDeleteHandler(sinkField, client);
   }
 
   const keyboard = new Guacamole.Keyboard(keyboardTarget);
@@ -108,14 +154,20 @@ function attachKeyboardInput(
   keyboard.onkeyup = (keysym: number) => client.sendKeyEvent(0, keysym);
 
   const focus = () => {
-    if (inputSink) {
-      inputSink.focus();
+    if (sinkField) {
+      focusMobileField(sinkField);
       return;
     }
     displayElement.focus({ preventScroll: true });
   };
 
-  if (!mobile) {
+  if (mobile && sinkField) {
+    const activate = () => focus();
+    addTouchActivator(displayElement, "touchstart", activate);
+    addTouchActivator(displayElement, "touchend", activate);
+    addTouchActivator(container, "touchstart", activate);
+    addTouchActivator(container, "touchend", activate);
+  } else {
     displayElement.addEventListener("mousedown", focus);
   }
 
@@ -123,10 +175,14 @@ function attachKeyboardInput(
     focus,
     detach: () => {
       keyboard.onkeydown = keyboard.onkeyup = null;
+      removeDeleteHandler?.();
       if (!mobile) {
         displayElement.removeEventListener("mousedown", focus);
       }
-      inputSink?.getElement().remove();
+      for (const { target, type, listener } of touchActivators) {
+        target.removeEventListener(type, listener);
+      }
+      sinkField?.remove();
     },
   };
 }
@@ -677,7 +733,7 @@ export default function RemoteViewer({
       {touchUi && !error && !manualReconnect && (
         <p className="pointer-events-none absolute bottom-2 left-0 right-0 px-3 text-center text-[10px] text-slate-500 sm:hidden">
           {isMobileViewport()
-            ? "Touchez un champ · clavier auto · appui long = clic droit"
+            ? "Touchez un champ ou ⌨️ pour le clavier"
             : "Touchez pour cliquer · glisser pour déplacer · appui long = clic droit"}
         </p>
       )}
