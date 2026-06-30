@@ -26,50 +26,67 @@ export function isMobileViewport(): boolean {
 }
 
 function isLandscapeOrientation(): boolean {
-  return window.matchMedia("(orientation: landscape)").matches;
+  const angle = window.screen?.orientation?.angle;
+  if (angle === 90 || angle === 270) return true;
+  if (angle === 0 || angle === 180) return false;
+  if (window.matchMedia("(orientation: landscape)").matches) return true;
+  const vv = window.visualViewport;
+  const w = vv?.width ?? window.innerWidth;
+  const h = vv?.height ?? window.innerHeight;
+  return w > h;
 }
 
-/** iOS Safari peut inverser ou retarder width/height après rotation */
-function alignToOrientation(
+function normalizeMobileSize(
   width: number,
   height: number,
   landscape: boolean
 ): { width: number; height: number } {
-  if (landscape && width < height) {
-    return { width: height, height: width };
-  }
-  if (!landscape && width > height) {
-    return { width: height, height: width };
-  }
-  return { width, height };
+  const major = Math.max(width, height);
+  const minor = Math.min(width, height);
+  return landscape
+    ? { width: major, height: minor }
+    : { width: minor, height: major };
 }
 
 export function measureViewport(container: HTMLElement | null): {
   width: number;
   height: number;
 } {
-  const vv = window.visualViewport;
   const landscape = isLandscapeOrientation();
   const containerWidth = container?.clientWidth ?? 0;
   const containerHeight = container?.clientHeight ?? 0;
 
   if (isMobileViewport()) {
-    let width = Math.round(vv?.width ?? window.innerWidth);
-    let height = Math.round(vv?.height ?? window.innerHeight);
-    if ((width < 64 || height < 64) && containerWidth > 0 && containerHeight > 0) {
-      width = containerWidth;
-      height = containerHeight;
+    const vv = window.visualViewport;
+    const sources = [
+      { width: Math.round(vv?.width ?? 0), height: Math.round(vv?.height ?? 0) },
+      { width: containerWidth, height: containerHeight },
+      { width: window.innerWidth, height: window.innerHeight },
+    ].filter((size) => size.width >= 64 && size.height >= 64);
+
+    if (sources.length === 0) {
+      return normalizeMobileSize(390, 844, landscape);
     }
-    return alignToOrientation(width, height, landscape);
+
+    let picked = sources[0];
+    for (const size of sources) {
+      const major = Math.max(size.width, size.height);
+      const pickedMajor = Math.max(picked.width, picked.height);
+      if (landscape ? major > pickedMajor : major < pickedMajor) {
+        picked = size;
+      }
+    }
+    return normalizeMobileSize(picked.width, picked.height, landscape);
   }
 
   let width = containerWidth;
   let height = containerHeight;
   if (width < 64 || height < 64) {
+    const vv = window.visualViewport;
     width = Math.round(vv?.width ?? window.innerWidth);
     height = Math.round(vv?.height ?? window.innerHeight);
   }
-  return alignToOrientation(width, height, landscape);
+  return normalizeMobileSize(width, height, landscape);
 }
 
 /** Facteur d'échelle Guacamole — mobile : jamais d'agrandissement (évite le zoom en plein écran) */

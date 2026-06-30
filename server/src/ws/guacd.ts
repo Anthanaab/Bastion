@@ -83,6 +83,14 @@ function rdpKeyboardLayout(host: NonNullable<ReturnType<typeof getHost>>): strin
   );
 }
 
+function rdpResizeMethod(): string {
+  const raw = process.env.BASTION_RDP_RESIZE_METHOD?.trim().toLowerCase();
+  if (raw === "reconnect" || raw === "display-update" || raw === "none") {
+    return raw;
+  }
+  return "display-update";
+}
+
 function rdpIgnoreCert(): boolean {
   const raw = process.env.BASTION_RDP_IGNORE_CERT ?? "true";
   return raw !== "false" && raw !== "0";
@@ -128,6 +136,10 @@ function buildSettings(
     settings.security = securityMode ?? rdpSecurityModes()[0] ?? "nla";
     if (rdpIgnoreCert()) {
       settings["ignore-cert"] = "true";
+    }
+    const resizeMethod = rdpResizeMethod();
+    if (resizeMethod !== "none") {
+      settings["resize-method"] = resizeMethod;
     }
     applyRdpQualityProfile(settings, qualityProfile);
     settings["server-layout"] = rdpKeyboardLayout(host);

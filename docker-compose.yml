@@ -32,6 +32,7 @@ services:
       BASTION_CORS_ORIGIN: "${BASTION_CORS_ORIGIN:-}"
       BASTION_SSH_STRICT_HOST_KEY: "${BASTION_SSH_STRICT_HOST_KEY:-true}"
       BASTION_RDP_IGNORE_CERT: "${BASTION_RDP_IGNORE_CERT:-true}"
+      BASTION_RDP_RESIZE_METHOD: "${BASTION_RDP_RESIZE_METHOD:-display-update}"
     depends_on:
       guacd:
         condition: service_started

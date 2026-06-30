@@ -343,6 +343,8 @@ export default function RemoteViewer({
       };
 
       let resizeDebounce: ReturnType<typeof setTimeout> | null = null;
+      let orientationMismatchTimer: ReturnType<typeof setTimeout> | null = null;
+
       const pushDisplaySize = () => {
         if (!clientConnected) return;
         if (!shouldSendDynamicResize(protocol, rdpSettings)) return;
@@ -356,11 +358,70 @@ export default function RemoteViewer({
         client.sendSize(width, height);
       };
 
+      const relaunchForOrientation = () => {
+        if (cancelled || intentional) return;
+        setStatus("Adaptation orientation…");
+        clientConnected = false;
+        clearControl();
+        if (orientationMismatchTimer) {
+          clearTimeout(orientationMismatchTimer);
+          orientationMismatchTimer = null;
+        }
+        sessionCleanup?.();
+        sessionCleanup = null;
+        attempt = 0;
+        void openSession();
+      };
+
+      const checkDisplayOrientation = () => {
+        if (!clientConnected || !shouldSendDynamicResize(protocol, rdpSettings)) return;
+        if (!isMobileViewport()) return;
+
+        const container = containerRef.current;
+        if (!container) return;
+
+        const viewport = measureViewport(container);
+        const dw = display.getWidth();
+        const dh = display.getHeight();
+        if (!dw || !dh) return;
+
+        const vpLandscape = viewport.width > viewport.height;
+        const dispLandscape = dw > dh;
+
+        if (vpLandscape === dispLandscape) {
+          if (orientationMismatchTimer) {
+            clearTimeout(orientationMismatchTimer);
+            orientationMismatchTimer = null;
+          }
+          return;
+        }
+
+        pushDisplaySize();
+
+        if (orientationMismatchTimer) clearTimeout(orientationMismatchTimer);
+        orientationMismatchTimer = setTimeout(() => {
+          orientationMismatchTimer = null;
+          if (cancelled || !clientConnected) return;
+          const dw2 = display.getWidth();
+          const dh2 = display.getHeight();
+          if (!dw2 || !dh2) return;
+          const vp2 = measureViewport(containerRef.current);
+          const vpLandscape2 = vp2.width > vp2.height;
+          const dispLandscape2 = dw2 > dh2;
+          if (vpLandscape2 !== dispLandscape2) {
+            relaunchForOrientation();
+          } else {
+            scale();
+          }
+        }, 1500);
+      };
+
       const handleViewportChange = () => {
         if (isMobileViewport()) {
           pushDisplaySize();
         }
         scale();
+        checkDisplayOrientation();
         if (resizeDebounce) clearTimeout(resizeDebounce);
         const delay = isMobileViewport() ? 120 : 300;
         resizeDebounce = setTimeout(() => {
@@ -498,6 +559,10 @@ export default function RemoteViewer({
         window.clearTimeout(handshakeTimeout);
         window.clearTimeout(timeout);
         if (resizeDebounce) clearTimeout(resizeDebounce);
+        if (orientationMismatchTimer) {
+          clearTimeout(orientationMismatchTimer);
+          orientationMismatchTimer = null;
+        }
         resizeObserver.disconnect();
         window.removeEventListener("orientationchange", onOrientationChange);
         window.visualViewport?.removeEventListener("resize", handleViewportChange);
