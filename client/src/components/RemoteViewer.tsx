@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import Guacamole from "guacamole-common-js";
 import { api, wsBaseUrl, wsConnectData } from "../lib/api";
 import {
+  isMobileViewport,
+  measureViewport,
   resolveRdpResolution,
   rdpSettingsSignature,
   type RdpDisplaySettings,
@@ -17,6 +19,7 @@ interface RemoteViewerProps {
   reconnectRef?: React.MutableRefObject<(() => void) | null>;
   fullscreenRef?: React.MutableRefObject<(() => void) | null>;
   viewportRef?: React.RefObject<HTMLDivElement | null>;
+  immersive?: boolean;
 }
 
 const MAX_RECONNECT_ATTEMPTS = 12;
@@ -26,9 +29,11 @@ function reconnectDelay(attempt: number): number {
 }
 
 function viewportSize(container: HTMLElement): { width: number; height: number } {
-  const width = Math.min(3840, Math.max(320, container.clientWidth || 1280));
-  const height = Math.min(2160, Math.max(240, container.clientHeight || 720));
-  return { width, height };
+  const measured = measureViewport(container);
+  return {
+    width: Math.min(3840, Math.max(320, measured.width || 1280)),
+    height: Math.min(2160, Math.max(240, measured.height || 720)),
+  };
 }
 
 function isCoarsePointer(): boolean {
@@ -139,8 +144,10 @@ export default function RemoteViewer({
   reconnectRef,
   fullscreenRef,
   viewportRef,
+  immersive = false,
 }: RemoteViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const viewportChangeRef = useRef<(() => void) | null>(null);
   const [status, setStatus] = useState("Connexion au serveur…");
   const [error, setError] = useState("");
   const [reconnecting, setReconnecting] = useState(false);
@@ -172,6 +179,11 @@ export default function RemoteViewer({
       reconnectRef.current = null;
     };
   }, [reconnectRef]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => viewportChangeRef.current?.(), 200);
+    return () => window.clearTimeout(timer);
+  }, [immersive]);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -311,11 +323,10 @@ export default function RemoteViewer({
 
         const widthRatio = container.clientWidth / dw;
         const heightRatio = container.clientHeight / dh;
-        const landscape = container.clientWidth >= container.clientHeight;
-        const factor =
-          isCoarsePointer() && landscape
-            ? widthRatio
-            : Math.min(widthRatio, heightRatio);
+        let factor = Math.min(widthRatio, heightRatio);
+        if (isCoarsePointer() || isMobileViewport()) {
+          factor = Math.min(factor, 1);
+        }
 
         display.scale(factor);
       };
@@ -337,12 +348,15 @@ export default function RemoteViewer({
       const handleViewportChange = () => {
         scale();
         if (resizeDebounce) clearTimeout(resizeDebounce);
+        const delay = isMobileViewport() ? 120 : 300;
         resizeDebounce = setTimeout(() => {
           resizeDebounce = null;
           pushDisplaySize();
           scale();
-        }, 300);
+        }, delay);
       };
+
+      viewportChangeRef.current = handleViewportChange;
 
       const pointerInput = attachPointerInput(client, element);
 
@@ -452,6 +466,7 @@ export default function RemoteViewer({
       window.visualViewport?.addEventListener("resize", handleViewportChange);
 
       sessionCleanup = () => {
+        viewportChangeRef.current = null;
         if (clientConnected) clearControl();
         element.removeEventListener("paste", onPaste);
         window.clearTimeout(handshakeTimeout);
@@ -510,7 +525,9 @@ export default function RemoteViewer({
       </div>
       {touchUi && !error && !manualReconnect && (
         <p className="pointer-events-none absolute bottom-2 left-0 right-0 px-3 text-center text-[10px] text-slate-500 sm:hidden">
-          Touchez pour cliquer · glisser pour déplacer · appui long = clic droit
+          {isMobileViewport()
+            ? "Bureau 1280×720 adapté à l'écran · touchez pour cliquer"
+            : "Touchez pour cliquer · glisser pour déplacer · appui long = clic droit"}
         </p>
       )}
       {manualReconnect && (

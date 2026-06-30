@@ -21,6 +21,31 @@ export const RDP_MAX_WIDTH = 3840;
 export const RDP_MIN_HEIGHT = 240;
 export const RDP_MAX_HEIGHT = 2160;
 
+/** Résolution RDP virtuelle sur mobile — affichée réduite pour voir tout le bureau */
+export const MOBILE_RDP_WIDTH = 1280;
+export const MOBILE_RDP_HEIGHT = 720;
+
+export function isMobileViewport(): boolean {
+  return window.matchMedia("(max-width: 768px), (pointer: coarse)").matches;
+}
+
+export function measureViewport(container: HTMLElement | null): {
+  width: number;
+  height: number;
+} {
+  const vv = window.visualViewport;
+  let width = container?.clientWidth ?? 0;
+  let height = container?.clientHeight ?? 0;
+  if (width < 64 || height < 64) {
+    width = vv?.width ?? window.innerWidth;
+    height = vv?.height ?? window.innerHeight;
+  }
+  return {
+    width: Math.round(width),
+    height: Math.round(height),
+  };
+}
+
 export const RDP_QUALITY_PROFILES: Record<
   RdpQualityProfile,
   { label: string; description: string }
@@ -115,15 +140,21 @@ export function resolveRdpResolution(
     };
   }
 
-  const width = Math.min(
-    RDP_MAX_WIDTH,
-    Math.max(RDP_MIN_WIDTH, container?.clientWidth || DEFAULT_RDP_DISPLAY_SETTINGS.width)
-  );
-  const height = Math.min(
-    RDP_MAX_HEIGHT,
-    Math.max(RDP_MIN_HEIGHT, container?.clientHeight || DEFAULT_RDP_DISPLAY_SETTINGS.height)
-  );
-  return { width, height };
+  if (isMobileViewport()) {
+    return { width: MOBILE_RDP_WIDTH, height: MOBILE_RDP_HEIGHT };
+  }
+
+  const measured = measureViewport(container);
+  return {
+    width: Math.min(
+      RDP_MAX_WIDTH,
+      Math.max(RDP_MIN_WIDTH, measured.width || DEFAULT_RDP_DISPLAY_SETTINGS.width)
+    ),
+    height: Math.min(
+      RDP_MAX_HEIGHT,
+      Math.max(RDP_MIN_HEIGHT, measured.height || DEFAULT_RDP_DISPLAY_SETTINGS.height)
+    ),
+  };
 }
 
 export function rdpSettingsSignature(settings: RdpDisplaySettings): string {

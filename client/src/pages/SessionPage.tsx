@@ -368,6 +368,7 @@ export default function SessionPage() {
             onStatusChange={setConnStatus}
             reconnectRef={remoteReconnectRef}
             fullscreenRef={fullscreenRef}
+            immersive={immersive}
             viewportRef={viewportRef}
           />
         )}
