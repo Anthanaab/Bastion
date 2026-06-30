@@ -32,7 +32,10 @@ export default function SessionPage() {
     loadRdpDisplaySettings(hostId ?? "")
   );
   const viewportRef = useRef<HTMLDivElement>(null);
+  const sessionRootRef = useRef<HTMLDivElement>(null);
   const remoteReconnectRef = useRef<(() => void) | null>(null);
+  const fullscreenRef = useRef<(() => void) | null>(null);
+  const [immersive, setImmersive] = useState(false);
   const [connStatus, setConnStatus] = useState<ConnectionStatus>({
     message: "Initialisation…",
   });
@@ -45,6 +48,7 @@ export default function SessionPage() {
     setSession(null);
     setMobileActionsOpen(false);
     setConnStatus({ message: "Initialisation…" });
+    setImmersive(false);
     if (hostId) {
       setRdpSettings(loadRdpDisplaySettings(hostId));
     }
@@ -53,6 +57,50 @@ export default function SessionPage() {
   useEffect(() => {
     setMobileActionsOpen(false);
   }, [session?.connected]);
+
+  useEffect(() => {
+    document.body.classList.toggle("overflow-hidden", immersive);
+    return () => document.body.classList.remove("overflow-hidden");
+  }, [immersive]);
+
+  useEffect(() => {
+    const onFullscreenChange = () => {
+      if (!document.fullscreenElement) {
+        setImmersive(false);
+      }
+    };
+    document.addEventListener("fullscreenchange", onFullscreenChange);
+    return () =>
+      document.removeEventListener("fullscreenchange", onFullscreenChange);
+  }, []);
+
+  const enterRdpFullscreen = async () => {
+    setImmersive(true);
+    const root = sessionRootRef.current;
+    if (!root?.requestFullscreen) return;
+    try {
+      await root.requestFullscreen();
+    } catch {
+      // iOS Safari : mode immersif CSS uniquement
+    }
+  };
+
+  const exitRdpFullscreen = async () => {
+    setImmersive(false);
+    if (!document.fullscreenElement) return;
+    try {
+      await document.exitFullscreen();
+    } catch {
+      // ignore
+    }
+  };
+
+  const toggleRdpFullscreen = () => {
+    if (immersive) void exitRdpFullscreen();
+    else void enterRdpFullscreen();
+  };
+
+  fullscreenRef.current = toggleRdpFullscreen;
 
   useEffect(() => {
     if (!hostId) return;
@@ -125,7 +173,15 @@ export default function SessionPage() {
   }
 
   return (
-    <div className="session-shell flex flex-col bg-bastion-950">
+    <div
+      ref={sessionRootRef}
+      className={
+        immersive
+          ? "session-shell-immersive flex flex-col"
+          : "session-shell flex flex-col bg-bastion-950"
+      }
+    >
+      {!immersive && (
       <header className="session-header">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-3 sm:gap-4">
@@ -160,15 +216,18 @@ export default function SessionPage() {
                 Réglages
               </button>
             )}
+            {session?.connected && session.rdp && host.protocol === "rdp" && (
+              <button
+                type="button"
+                onClick={toggleRdpFullscreen}
+                className="btn-primary min-h-[44px] px-3 py-2 text-xs"
+                aria-label="Plein écran"
+              >
+                ⛶ Plein écran
+              </button>
+            )}
             {session?.connected && session.rdp && (
               <>
-                <button
-                  type="button"
-                  onClick={() => session.rdp!.toggleFullscreen()}
-                  className="btn-secondary hidden min-h-[44px] py-2 text-xs sm:inline-flex"
-                >
-                  Plein écran
-                </button>
                 <button
                   type="button"
                   onClick={() => session.rdp!.sendCtrlAltDel()}
@@ -189,7 +248,7 @@ export default function SessionPage() {
                   className="btn-secondary min-h-[44px] py-2 text-xs sm:hidden"
                   aria-expanded={mobileActionsOpen}
                 >
-                  Actions RDP
+                  Plus
                 </button>
               </>
             )}
@@ -256,16 +315,6 @@ export default function SessionPage() {
             <button
               type="button"
               onClick={() => {
-                session.rdp!.toggleFullscreen();
-                setMobileActionsOpen(false);
-              }}
-              className="btn-secondary w-full py-2 text-xs"
-            >
-              Plein écran
-            </button>
-            <button
-              type="button"
-              onClick={() => {
                 session.rdp!.sendCtrlAltDel();
                 setMobileActionsOpen(false);
               }}
@@ -286,6 +335,17 @@ export default function SessionPage() {
           </div>
         )}
       </header>
+      )}
+
+      {immersive && session?.connected && (
+        <button
+          type="button"
+          onClick={toggleRdpFullscreen}
+          className="session-exit-immersive btn-primary px-4 text-xs"
+        >
+          Réduire
+        </button>
+      )}
 
       {clipboardMsg && (
         <InlineAlert variant="success" className="shrink-0 rounded-none border-x-0 py-2 text-center text-xs">
@@ -293,7 +353,10 @@ export default function SessionPage() {
         </InlineAlert>
       )}
 
-      <div ref={viewportRef} className="session-viewport">
+      <div
+        ref={viewportRef}
+        className={immersive ? "session-viewport-immersive" : "session-viewport"}
+      >
         {host.protocol === "ssh" ? (
           <SshTerminal hostId={host.id} onSessionControl={handleSessionControl} />
         ) : (
@@ -304,6 +367,7 @@ export default function SessionPage() {
             onSessionControl={handleSessionControl}
             onStatusChange={setConnStatus}
             reconnectRef={remoteReconnectRef}
+            fullscreenRef={fullscreenRef}
             viewportRef={viewportRef}
           />
         )}

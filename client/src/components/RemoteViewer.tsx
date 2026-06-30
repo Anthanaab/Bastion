@@ -15,6 +15,7 @@ interface RemoteViewerProps {
   onSessionControl?: (control: SessionControl | null) => void;
   onStatusChange?: (status: ConnectionStatus) => void;
   reconnectRef?: React.MutableRefObject<(() => void) | null>;
+  fullscreenRef?: React.MutableRefObject<(() => void) | null>;
   viewportRef?: React.RefObject<HTMLDivElement | null>;
 }
 
@@ -136,6 +137,7 @@ export default function RemoteViewer({
   onSessionControl,
   onStatusChange,
   reconnectRef,
+  fullscreenRef,
   viewportRef,
 }: RemoteViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -286,15 +288,7 @@ export default function RemoteViewer({
 
         if (protocol === "rdp") {
           control.rdp = {
-            toggleFullscreen: () => {
-              const target = viewportRef?.current ?? containerRef.current;
-              if (!target) return;
-              if (!document.fullscreenElement) {
-                void target.requestFullscreen();
-              } else {
-                void document.exitFullscreen();
-              }
-            },
+            toggleFullscreen: () => fullscreenRef?.current?.(),
             sendCtrlAltDel: () => sendCtrlAltDel(client),
             pasteClipboard: () => pasteClipboard(client),
             pasteText: (text: string) => sendTextToRemote(client, text),
