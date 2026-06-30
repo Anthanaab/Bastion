@@ -77,25 +77,26 @@ function prepareMobileInputSink(sink: Guacamole.InputSink): HTMLTextAreaElement 
   field.setAttribute("inputmode", "text");
   field.setAttribute("enterkeyhint", "done");
   field.setAttribute("rows", "1");
-  field.tabIndex = 0;
+  field.setAttribute("aria-hidden", "true");
+  field.tabIndex = -1;
   field.style.position = "fixed";
-  field.style.left = "0";
-  field.style.right = "0";
-  field.style.bottom = "0";
-  field.style.width = "100%";
-  field.style.height = "48px";
+  field.style.left = "-10000px";
+  field.style.top = "0";
+  field.style.width = "1px";
+  field.style.height = "1px";
   field.style.margin = "0";
   field.style.padding = "0";
   field.style.border = "none";
   field.style.outline = "none";
   field.style.resize = "none";
   field.style.fontSize = "16px";
-  field.style.lineHeight = "48px";
-  field.style.zIndex = "60";
-  field.style.opacity = "0.01";
+  field.style.opacity = "0";
+  field.style.pointerEvents = "none";
+  field.style.zIndex = "-1";
   field.style.background = "transparent";
   field.style.color = "transparent";
   field.style.caretColor = "transparent";
+  field.className = "rdp-mobile-keyboard-sink";
   return field;
 }
 

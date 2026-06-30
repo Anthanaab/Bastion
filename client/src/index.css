@@ -63,7 +63,11 @@
   }
 
   .session-exit-immersive {
-    @apply fixed bottom-4 right-4 z-50 min-h-[44px] shadow-lg;
+    @apply fixed bottom-4 right-4 z-[100] min-h-[44px] shadow-lg;
+  }
+
+  .rdp-mobile-keyboard-sink {
+    pointer-events: none !important;
   }
 
   .btn-icon {

@@ -353,7 +353,8 @@ export default function SessionPage() {
             <button
               type="button"
               onClick={() => session.rdp!.focusKeyboard()}
-              className="btn-secondary min-h-[44px] px-4 text-xs"
+              aria-label="Clavier"
+              className="btn-secondary relative z-[101] min-h-[44px] px-4 text-xs"
             >
               ⌨️
             </button>
@@ -361,7 +362,7 @@ export default function SessionPage() {
           <button
             type="button"
             onClick={toggleRdpFullscreen}
-            className="btn-primary min-h-[44px] px-4 text-xs"
+            className="btn-primary relative z-[101] min-h-[44px] px-4 text-xs"
           >
             Réduire
           </button>
