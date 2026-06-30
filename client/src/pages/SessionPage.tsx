@@ -320,7 +320,7 @@ export default function SessionPage() {
               }}
               className="btn-secondary w-full py-2 text-xs"
             >
-              ⌨️ Ouvrir clavier
+              ⌨️ Clavier
             </button>
             <button
               type="button"

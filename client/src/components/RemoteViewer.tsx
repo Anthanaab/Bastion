@@ -48,11 +48,9 @@ const MOUSE_EVENTS = ["mousedown", "mousemove", "mouseup"] as const;
 
 function attachPointerInput(
   client: Guacamole.Client,
-  element: HTMLElement,
-  onActivate?: () => void
+  element: HTMLElement
 ): { detach: () => void } {
   const handler = (event: Guacamole.Mouse.Event) => {
-    onActivate?.();
     client.getDisplay().showCursor(true);
     client.sendMouseState(event.state, true);
   };
@@ -107,6 +105,10 @@ function focusMobileField(field: HTMLTextAreaElement): void {
   field.focus({ preventScroll: true });
 }
 
+function blurMobileField(field: HTMLTextAreaElement): void {
+  field.blur();
+}
+
 function attachMobileDeleteHandler(
   field: HTMLTextAreaElement,
   client: Guacamole.Client
@@ -123,23 +125,12 @@ function attachMobileDeleteHandler(
 
 function attachKeyboardInput(
   client: Guacamole.Client,
-  displayElement: HTMLElement,
-  container: HTMLElement
-): { detach: () => void; focus: () => void } {
+  displayElement: HTMLElement
+): { detach: () => void; focus: () => void; blur: () => void; toggle: () => void } {
   const mobile = isCoarsePointer();
   let sinkField: HTMLTextAreaElement | null = null;
   let keyboardTarget: HTMLElement | Document = displayElement;
   let removeDeleteHandler: (() => void) | null = null;
-  const touchActivators: Array<{
-    target: EventTarget;
-    type: string;
-    listener: EventListener;
-  }> = [];
-
-  const addTouchActivator = (target: EventTarget, type: string, listener: EventListener) => {
-    target.addEventListener(type, listener, { passive: true });
-    touchActivators.push({ target, type, listener });
-  };
 
   if (mobile) {
     const inputSink = new Guacamole.InputSink();
@@ -161,26 +152,33 @@ function attachKeyboardInput(
     displayElement.focus({ preventScroll: true });
   };
 
-  if (mobile && sinkField) {
-    const activate = () => focus();
-    addTouchActivator(displayElement, "touchstart", activate);
-    addTouchActivator(displayElement, "touchend", activate);
-    addTouchActivator(container, "touchstart", activate);
-    addTouchActivator(container, "touchend", activate);
-  } else {
+  const blur = () => {
+    if (sinkField) {
+      blurMobileField(sinkField);
+    }
+  };
+
+  const toggle = () => {
+    if (sinkField && document.activeElement === sinkField) {
+      blur();
+      return;
+    }
+    focus();
+  };
+
+  if (!mobile) {
     displayElement.addEventListener("mousedown", focus);
   }
 
   return {
     focus,
+    blur,
+    toggle,
     detach: () => {
       keyboard.onkeydown = keyboard.onkeyup = null;
       removeDeleteHandler?.();
       if (!mobile) {
         displayElement.removeEventListener("mousedown", focus);
-      }
-      for (const { target, type, listener } of touchActivators) {
-        target.removeEventListener(type, listener);
       }
       sinkField?.remove();
     },
@@ -424,7 +422,7 @@ export default function RemoteViewer({
             sendCtrlAltDel: () => sendCtrlAltDel(client),
             pasteClipboard: () => pasteClipboard(client),
             pasteText: (text: string) => sendTextToRemote(client, text),
-            focusKeyboard: () => keyboardInput.focus(),
+            focusKeyboard: () => keyboardInput.toggle(),
           };
         }
 
@@ -560,12 +558,8 @@ export default function RemoteViewer({
 
       viewportChangeRef.current = handleViewportChange;
 
-      const keyboardInput = attachKeyboardInput(
-        client,
-        element,
-        containerRef.current
-      );
-      const pointerInput = attachPointerInput(client, element, keyboardInput.focus);
+      const keyboardInput = attachKeyboardInput(client, element);
+      const pointerInput = attachPointerInput(client, element);
 
       client.onsync = () => {
         scale();
@@ -733,7 +727,7 @@ export default function RemoteViewer({
       {touchUi && !error && !manualReconnect && (
         <p className="pointer-events-none absolute bottom-2 left-0 right-0 px-3 text-center text-[10px] text-slate-500 sm:hidden">
           {isMobileViewport()
-            ? "Touchez un champ ou ⌨️ pour le clavier"
+            ? "⌨️ pour ouvrir/fermer le clavier · appui long = clic droit"
             : "Touchez pour cliquer · glisser pour déplacer · appui long = clic droit"}
         </p>
       )}
