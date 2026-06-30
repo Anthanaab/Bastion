@@ -1,5 +1,6 @@
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useState,
@@ -21,6 +22,8 @@ interface AuthContextValue {
   loginTotp: (challenge: string, code: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshMe: () => Promise<void>;
+  reloadAuth: () => Promise<void>;
+  abortAuth: () => void;
   togglePin: (hostId: string) => Promise<void>;
 }
 
@@ -41,17 +44,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     applyUser(r.user);
   };
 
-  useEffect(() => {
+  const reloadAuth = useCallback(async () => {
     if (!getToken()) {
+      setUser(null);
+      setPinnedHostIds([]);
       setLoading(false);
       return;
     }
-    api
-      .me()
-      .then((r) => applyUser(r.user))
-      .catch(() => clearToken())
-      .finally(() => setLoading(false));
+    setLoading(true);
+    try {
+      const r = await api.me();
+      applyUser(r.user);
+    } catch {
+      clearToken();
+      setUser(null);
+      setPinnedHostIds([]);
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  const abortAuth = useCallback(() => {
+    clearToken();
+    setUser(null);
+    setPinnedHostIds([]);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    void reloadAuth();
+  }, [reloadAuth]);
 
   const login = async (username: string, password: string, totp?: string) => {
     const res = await api.login(username, password, totp);
@@ -95,6 +117,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         loginTotp,
         logout,
         refreshMe,
+        reloadAuth,
+        abortAuth,
         togglePin,
       }}
     >

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import type { Host } from "../types";
 import { api } from "../lib/api";
 import InlineAlert from "./InlineAlert";
@@ -26,6 +26,7 @@ export default function HostCard({
   canManage = true,
   onTagClick,
 }: HostCardProps) {
+  const navigate = useNavigate();
   const [waking, setWaking] = useState(false);
   const [wakeFeedback, setWakeFeedback] = useState<{
     text: string;
@@ -37,7 +38,12 @@ export default function HostCard({
     ? host.tags.split(",").map((t) => t.trim()).filter(Boolean)
     : [];
 
-  const handleWake = async () => {
+  const openSession = () => {
+    navigate(`/session/${host.id}`);
+  };
+
+  const handleWake = async (event: React.MouseEvent) => {
+    event.stopPropagation();
     setWaking(true);
     setWakeFeedback(null);
     setReadyToConnect(false);
@@ -70,7 +76,16 @@ export default function HostCard({
 
   return (
     <article
-      className="glass-card group animate-slide-up overflow-hidden transition hover:border-bastion-accent/30 hover:shadow-glow"
+      role="button"
+      tabIndex={0}
+      onClick={openSession}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          openSession();
+        }
+      }}
+      className="glass-card group animate-slide-up cursor-pointer overflow-hidden transition hover:border-bastion-accent/30 hover:shadow-glow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bastion-accent/50"
       style={{ borderLeftWidth: 3, borderLeftColor: host.color }}
     >
       <div className="p-5">
@@ -97,8 +112,11 @@ export default function HostCard({
                 {onTogglePin && (
                   <button
                     type="button"
-                    onClick={onTogglePin}
-                    className={`text-sm ${pinned ? "text-bastion-accent" : "text-slate-600 hover:text-slate-400"}`}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onTogglePin();
+                    }}
+                    className={`min-h-[44px] min-w-[44px] text-sm ${pinned ? "text-bastion-accent" : "text-slate-600 hover:text-slate-400"}`}
                     aria-label={pinned ? "Retirer des favoris" : "Épingler"}
                   >
                     {pinned ? "★" : "☆"}
@@ -131,8 +149,11 @@ export default function HostCard({
               <button
                 key={tag}
                 type="button"
-                onClick={() => onTagClick?.(tag)}
-                className={`rounded-md bg-bastion-800 px-2 py-0.5 text-xs text-slate-400 ${
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onTagClick?.(tag);
+                }}
+                className={`min-h-[32px] rounded-md bg-bastion-800 px-2 py-0.5 text-xs text-slate-400 ${
                   onTagClick ? "hover:bg-bastion-700 hover:text-white" : ""
                 }`}
               >
@@ -149,17 +170,17 @@ export default function HostCard({
         )}
 
         <div className="flex flex-wrap gap-2">
-          <Link
-            to={`/session/${host.id}`}
-            className={`btn-primary min-h-[44px] flex-1 text-center ${readyToConnect ? "animate-pulse" : ""}`}
+          <span
+            className={`btn-primary pointer-events-none min-h-[44px] flex-1 text-center ${readyToConnect ? "animate-pulse" : ""}`}
           >
             Connexion
-          </Link>
+          </span>
           {host.macAddress && (
             <button
-              onClick={() => void handleWake()}
+              type="button"
+              onClick={(event) => void handleWake(event)}
               disabled={waking}
-              className="btn-secondary px-3"
+              className="btn-secondary relative z-10 min-h-[44px] px-3"
               title="Réveiller et attendre la mise en ligne"
             >
               {waking ? "…" : "⚡ Réveiller"}
@@ -168,15 +189,23 @@ export default function HostCard({
           {canManage && (
             <>
               <button
-                onClick={() => onEdit(host)}
-                className="btn-secondary px-3"
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onEdit(host);
+                }}
+                className="btn-secondary relative z-10 min-h-[44px] px-3"
                 aria-label="Modifier"
               >
                 ✎
               </button>
               <button
-                onClick={() => onDelete(host)}
-                className="btn-secondary px-3 text-red-400 hover:border-red-500/40"
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onDelete(host);
+                }}
+                className="btn-secondary relative z-10 min-h-[44px] px-3 text-red-400 hover:border-red-500/40"
                 aria-label="Supprimer"
               >
                 ✕

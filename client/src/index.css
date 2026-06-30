@@ -4,7 +4,7 @@
 
 @layer base {
   body {
-    @apply font-sans;
+    @apply touch-manipulation font-sans;
   }
 
   * {
@@ -69,7 +69,16 @@
   }
 
   .glass-card {
-    @apply rounded-xl border border-bastion-700/80 bg-bastion-900/80 shadow-card backdrop-blur-sm;
+    @apply rounded-xl border border-bastion-700/80 bg-bastion-900 shadow-card sm:bg-bastion-900/80 sm:backdrop-blur-sm;
+  }
+
+  .page-shell {
+    @apply relative isolate min-h-[100dvh] bg-bastion-950;
+  }
+
+  .page-main {
+    @apply relative z-10 mx-auto max-w-7xl px-4 py-8 sm:px-6;
+    pointer-events: auto;
   }
 
   .alert-success {

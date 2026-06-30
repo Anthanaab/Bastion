@@ -27,7 +27,7 @@ async function request<T>(
   path: string,
   options: RequestInit & { timeoutMs?: number } = {}
 ): Promise<T> {
-  const { timeoutMs = 30_000, ...fetchOptions } = options;
+  const { timeoutMs = 15_000, ...fetchOptions } = options;
   const token = getToken();
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -84,7 +84,11 @@ export const api = {
 
   logout: () => request<{ ok: boolean }>("/logout", { method: "POST" }),
 
-  me: () => request<{ user: User }>("/me"),
+  me: () => request<{ user: User }>("/me", { timeoutMs: 10_000 }),
+
+  hosts: () => request<Host[]>("/hosts", { timeoutMs: 12_000 }),
+
+  stats: () => request<Stats>("/stats", { timeoutMs: 12_000 }),
 
   updatePins: (pinnedHostIds: string[]) =>
     request<{ pinnedHostIds: string[] }>("/me/pins", {
@@ -160,11 +164,8 @@ export const api = {
   deleteGroup: (id: string) =>
     request<{ ok: boolean }>(`/groups/${id}`, { method: "DELETE" }),
 
-  stats: () => request<Stats>("/stats"),
-
-  hosts: () => request<Host[]>("/hosts"),
-
-  hostsStatus: () => request<Record<string, boolean>>("/hosts/status"),
+  hostsStatus: () =>
+    request<Record<string, boolean>>("/hosts/status", { timeoutMs: 12_000 }),
 
   host: (id: string) =>
     request<Host & { password?: string; privateKey?: string }>(`/hosts/${id}`),

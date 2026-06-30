@@ -24,7 +24,7 @@ function Modal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        className="absolute inset-0 bg-black/60 max-sm:bg-black/70 sm:backdrop-blur-sm"
         onClick={onClose}
       />
       <div className="glass-card relative z-10 max-h-[90vh] w-full max-w-lg overflow-y-auto p-6 animate-slide-up">

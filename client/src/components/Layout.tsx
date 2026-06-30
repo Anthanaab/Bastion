@@ -23,8 +23,8 @@ export default function Layout({
   }, [location.pathname]);
 
   return (
-    <div className="min-h-screen bg-bastion-950">
-      <div className="pointer-events-none fixed inset-0 overflow-hidden">
+    <div className="page-shell">
+      <div className="pointer-events-none fixed inset-0 hidden overflow-hidden sm:block">
         <div className="absolute -left-40 top-0 h-96 w-96 rounded-full bg-bastion-accent/5 blur-3xl" />
         <div className="absolute -right-20 bottom-0 h-80 w-80 rounded-full bg-blue-500/5 blur-3xl" />
       </div>
@@ -57,7 +57,7 @@ export default function Layout({
               <Link
                 key={to}
                 to={to}
-                className={`btn-secondary hidden text-xs sm:inline-flex ${
+                className={`btn-secondary hidden min-h-[44px] text-xs sm:inline-flex ${
                   location.pathname === to
                     ? "border-bastion-accent/50 text-white"
                     : ""
@@ -77,7 +77,7 @@ export default function Layout({
             <button
               type="button"
               onClick={() => logout()}
-              className="btn-secondary hidden text-xs sm:inline-flex"
+              className="btn-secondary hidden min-h-[44px] text-xs sm:inline-flex"
             >
               Déconnexion
             </button>
@@ -85,7 +85,7 @@ export default function Layout({
             <button
               type="button"
               onClick={() => setMenuOpen((open) => !open)}
-              className="btn-icon sm:hidden"
+              className="btn-icon min-h-[44px] min-w-[44px] sm:hidden"
               aria-expanded={menuOpen}
               aria-label={menuOpen ? "Fermer le menu" : "Ouvrir le menu"}
             >
@@ -107,7 +107,7 @@ export default function Layout({
         </div>
 
         {menuOpen && (
-          <nav className="border-t border-bastion-800 bg-bastion-950/95 px-4 py-3 sm:hidden">
+          <nav className="relative z-30 border-t border-bastion-800 bg-bastion-950 px-4 py-3 sm:hidden">
             <div className="mb-3 text-sm text-slate-400">
               {user?.username}
               {user?.role === "operator" && (
@@ -121,7 +121,7 @@ export default function Layout({
                 <Link
                   key={to}
                   to={to}
-                  className={`rounded-lg px-3 py-2.5 text-sm font-medium transition ${
+                  className={`min-h-[44px] rounded-lg px-3 py-2.5 text-sm font-medium transition ${
                     location.pathname === to
                       ? "bg-bastion-accent text-bastion-950"
                       : "text-slate-300 hover:bg-bastion-800"
@@ -133,7 +133,7 @@ export default function Layout({
               <button
                 type="button"
                 onClick={() => logout()}
-                className="rounded-lg px-3 py-2.5 text-left text-sm font-medium text-slate-300 transition hover:bg-bastion-800"
+                className="min-h-[44px] rounded-lg px-3 py-2.5 text-left text-sm font-medium text-slate-300 transition hover:bg-bastion-800"
               >
                 Déconnexion
               </button>
@@ -142,9 +142,7 @@ export default function Layout({
         )}
       </header>
 
-      <main className="relative z-10 mx-auto max-w-7xl px-4 py-8 sm:px-6">
-        {children}
-      </main>
+      <main className="page-main">{children}</main>
     </div>
   );
 }
