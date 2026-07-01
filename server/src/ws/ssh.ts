@@ -122,6 +122,17 @@ export function handleSshConnection(ws: WebSocket, request: IncomingMessage): vo
     });
   });
 
+  // Certains serveurs (PAM notamment) n'acceptent le mot de passe que via
+  // keyboard-interactive plutôt que la méthode "password" brute — sans ça,
+  // ssh2 échoue avec "All configured authentication methods failed" même
+  // avec des identifiants corrects.
+  conn.on(
+    "keyboard-interactive",
+    (_name, _instructions, _lang, prompts, finish) => {
+      finish(prompts.map(() => host.password ?? ""));
+    }
+  );
+
   conn.on("error", (err) => {
     console.error(
       `[SSH] Erreur connexion ${host.name} (${host.username || "(vide)"}@${host.hostname}:${host.port}): ${err.message}`
@@ -163,6 +174,7 @@ export function handleSshConnection(ws: WebSocket, request: IncomingMessage): vo
     port: host.port,
     username: host.username,
     readyTimeout: 15000,
+    tryKeyboard: true,
     hostVerifier: (
       key: Buffer,
       callback: (verified: boolean) => void
