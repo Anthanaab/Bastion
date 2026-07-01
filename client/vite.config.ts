@@ -26,5 +26,16 @@ export default defineConfig({
   build: {
     outDir: "dist",
     emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          // Vendors stables dans leur propre chunk : leur hash ne change pas
+          // à chaque release, le navigateur les garde en cache.
+          react: ["react", "react-dom", "react-router-dom"],
+          xterm: ["@xterm/xterm", "@xterm/addon-fit", "@xterm/addon-web-links"],
+          guacamole: ["guacamole-common-js"],
+        },
+      },
+    },
   },
 });

@@ -1,4 +1,5 @@
 import express from "express";
+import compression from "compression";
 import cookieParser from "cookie-parser";
 import cors from "cors";
 import path from "path";
@@ -18,6 +19,7 @@ import { handleGuacdConnection } from "./ws/guacd";
 import { getJwtSecret } from "./auth";
 import { assertEncryptionKeyConfigured } from "./crypto";
 import { probeTcp } from "./probe";
+import { VERSION } from "./version";
 
 const PORT = parseInt(process.env.PORT ?? "3000", 10);
 
@@ -108,6 +110,7 @@ const CSP = [
   "object-src 'none'",
 ].join("; ");
 
+app.use(compression());
 app.use((_req, res, next) => {
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("X-Frame-Options", "SAMEORIGIN");
@@ -136,7 +139,7 @@ app.get("/api/health", async (_req, res) => {
   res.status(healthy ? 200 : 503).json({
     status: healthy ? "ok" : "degraded",
     name: "Bastion",
-    version: "1.10.0",
+    version: VERSION,
     checks: { guacd: guacdOk, database: databaseOk },
   });
 });
@@ -147,6 +150,10 @@ app.use(
     setHeaders(res, filePath) {
       if (filePath.endsWith("index.html")) {
         res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+      } else if (filePath.includes(`${path.sep}assets${path.sep}`)) {
+        // Les fichiers de client/dist/assets portent un hash dans leur nom :
+        // ils peuvent être mis en cache indéfiniment.
+        res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
       }
     },
   })
@@ -196,7 +203,7 @@ server.listen(PORT, "0.0.0.0", () => {
   ║   Passerelle d'accès distant         ║
   ╠══════════════════════════════════════╣
   ║  http://localhost:${String(PORT).padEnd(19)}║
-  ║  Version : 1.10.0${" ".repeat(21)}║
+  ║  Version : ${VERSION.padEnd(27)}║
   ║  Admin : ${ADMIN_USER.padEnd(27)}║
   ╚══════════════════════════════════════╝
   `);

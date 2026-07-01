@@ -2,7 +2,7 @@
 
 Interface web pour se connecter à vos machines en **SSH**, **RDP** et **VNC** depuis un navigateur.
 
-**Version actuelle : 1.10.0**
+**Version actuelle : 1.11.0**
 
 ## Démarrage rapide (Docker)
 
@@ -23,6 +23,13 @@ Ouvrez **http://localhost:3000** — identifiants par défaut : `admin` / `admin
 - Reconnexion automatique (RDP/VNC/SSH) avec backoff
 - Outils RDP : plein écran, Ctrl+Alt+Suppr, presse-papiers
 - **Réglages RDP** en session : résolution (auto/manuel) et profils qualité (performance / équilibré / qualité)
+
+### Page Infrastructure (v1.11+)
+- Vue d'ensemble : machines en ligne/hors ligne, par protocole et par tag
+- **Métriques CPU / RAM / disque** des machines SSH en ligne (collecte via SSH, sans agent)
+- État des services : base de données, guacd, relais WoL
+- Sessions actives et historique récent
+- Infos système (admin) : version, uptime, mémoire, utilisateurs, sauvegardes
 
 ### Gestion des machines
 - Tableau de bord : recherche, filtres protocole/tags
@@ -110,6 +117,7 @@ Navigateur ──► Bastion (Node.js) ──► SSH direct
 
 | Version | Highlights |
 |---------|------------|
+| **1.11.0** | Page **Infrastructure** (état services, machines, sessions, système), métriques CPU/RAM/disque via SSH, performances : code-splitting des pages (bundle initial ~3× plus léger), compression HTTP, cache navigateur des assets, cache serveur des probes de statut (moins de charge réseau multi-clients) |
 | **1.10.0** | Polish : mot de passe admin par défaut à changer obligatoirement, désactivation 2FA par un admin, badge "identifiants à ressaisir", CSP, healthcheck guacd/DB, migration `@xterm/*` |
 | **1.9.0** | Durcissement sécurité : rejet du `JWT_SECRET` par défaut au démarrage, sessions liées au `userId`, `trust proxy` désactivé par défaut, token retiré des URL WebSocket, CORS resserré, conteneur non-root, déchiffrement défensif des secrets hôtes/TOTP |
 | **1.8.1** | QR 2FA, révocation sessions UI, groupes à la création user |

@@ -3,6 +3,8 @@ import type {
   AuditRecord,
   Host,
   HostExportBundle,
+  HostMetricsResult,
+  InfrastructureSummary,
   LiveSessionRecord,
   SessionRecord,
   Stats,
@@ -89,6 +91,14 @@ export const api = {
   hosts: () => request<Host[]>("/hosts", { timeoutMs: 12_000 }),
 
   stats: () => request<Stats>("/stats", { timeoutMs: 12_000 }),
+
+  infrastructure: () =>
+    request<InfrastructureSummary>("/infrastructure", { timeoutMs: 20_000 }),
+
+  hostMetrics: (hostId: string) =>
+    request<HostMetricsResult>(`/hosts/${hostId}/metrics`, {
+      timeoutMs: 15_000,
+    }),
 
   updatePins: (pinnedHostIds: string[]) =>
     request<{ pinnedHostIds: string[] }>("/me/pins", {

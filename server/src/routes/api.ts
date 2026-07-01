@@ -1,5 +1,8 @@
 import { Router } from "express";
 import bcrypt from "bcryptjs";
+import fs from "fs";
+import os from "os";
+import path from "path";
 import { z } from "zod";
 import { v4 as uuid } from "uuid";
 import {
@@ -45,7 +48,11 @@ import {
   verifyTotpChallenge,
 } from "../auth";
 import { probeTcp } from "../probe";
-import { isValidMac, wakeHost } from "../wol";
+import { probeCached, probeHostsCached } from "../status-cache";
+import { checkWolRelay, isValidMac, wakeHost } from "../wol";
+import { getBackupInfo } from "../backup";
+import { getHostMetrics } from "../metrics";
+import { VERSION } from "../version";
 import { loginRateLimit, totpConfirmRateLimit } from "../middleware/rate-limit";
 import {
   encryptTotpSecret,
@@ -387,6 +394,84 @@ router.get("/stats", authMiddleware, (req, res) => {
   res.json(getStats(req.user!.userId));
 });
 
+router.get("/infrastructure", authMiddleware, async (req, res) => {
+  const isAdmin = req.user!.role === "admin";
+  const hosts = listHostsForUser(req.user!.userId);
+
+  const guacdHost = process.env.GUACD_HOST ?? "127.0.0.1";
+  const guacdPort = parseInt(process.env.GUACD_PORT ?? "4822", 10);
+  const databasePath =
+    process.env.DATABASE_PATH ?? path.join(process.cwd(), "data", "bastion.json");
+
+  const [statuses, guacdOk, wolRelay] = await Promise.all([
+    probeHostsCached(hosts),
+    probeCached(guacdHost, guacdPort),
+    checkWolRelay(),
+  ]);
+
+  const byProtocol: Record<string, { total: number; online: number }> = {};
+  const byTag: Record<string, { total: number; online: number }> = {};
+  let online = 0;
+  for (const host of hosts) {
+    const isOnline = statuses[host.id] === true;
+    if (isOnline) online += 1;
+    const proto = (byProtocol[host.protocol] ??= { total: 0, online: 0 });
+    proto.total += 1;
+    if (isOnline) proto.online += 1;
+    for (const tag of host.tags.split(",").map((t) => t.trim()).filter(Boolean)) {
+      const entry = (byTag[tag] ??= { total: 0, online: 0 });
+      entry.total += 1;
+      if (isOnline) entry.online += 1;
+    }
+  }
+
+  const stats = getStats(isAdmin ? undefined : req.user!.userId);
+
+  res.json({
+    generatedAt: new Date().toISOString(),
+    hosts: {
+      total: hosts.length,
+      online,
+      offline: hosts.length - online,
+      wolCapable: hosts.filter((h) => h.macAddress).length,
+      byProtocol,
+      byTag,
+      items: hosts.map((h) => ({
+        id: h.id,
+        name: h.name,
+        hostname: h.hostname,
+        port: h.port,
+        protocol: h.protocol,
+        online: statuses[h.id] === true,
+        wolCapable: Boolean(h.macAddress),
+        tags: h.tags,
+        color: h.color,
+      })),
+    },
+    services: {
+      guacd: guacdOk,
+      database: fs.existsSync(databasePath),
+      wolRelay,
+    },
+    sessions: {
+      active: stats.activeSessions,
+      live: isAdmin ? listLiveSessions() : null,
+      recent: listSessions(10, isAdmin ? undefined : req.user!.userId),
+    },
+    system: isAdmin
+      ? {
+          version: VERSION,
+          uptimeSec: Math.round(process.uptime()),
+          nodeVersion: process.version,
+          platform: `${os.type()} ${os.arch()}`,
+          memoryMb: Math.round(process.memoryUsage().rss / 1024 / 1024),
+          users: listUsers().length,
+          backups: getBackupInfo(),
+        }
+      : null,
+  });
+});
+
 router.get("/hosts", authMiddleware, (req, res) => {
   const hosts = listHostsForUser(req.user!.userId).map((h: Host) => ({
     ...h,
@@ -398,17 +483,7 @@ router.get("/hosts", authMiddleware, (req, res) => {
 
 router.get("/hosts/status", authMiddleware, async (req, res) => {
   const hosts = listHostsForUser(req.user!.userId);
-  const entries = await Promise.all(
-    hosts.map(async (host) => {
-      try {
-        const online = await probeTcp(host.hostname, host.port);
-        return [host.id, online] as const;
-      } catch {
-        return [host.id, false] as const;
-      }
-    })
-  );
-  res.json(Object.fromEntries(entries));
+  res.json(await probeHostsCached(hosts));
 });
 
 router.get("/hosts/export", authMiddleware, adminMiddleware, (req, res) => {
@@ -734,6 +809,19 @@ router.delete("/hosts/:id", authMiddleware, adminMiddleware, (req, res) => {
   res.json({ ok: true });
 });
 
+router.get("/hosts/:id/metrics", authMiddleware, async (req, res) => {
+  const host = getHost(req.params.id);
+  if (!host) {
+    res.status(404).json({ error: "Hôte introuvable" });
+    return;
+  }
+  if (!canUserAccessHost(req.user!.userId, host.id)) {
+    res.status(403).json({ error: "Accès à cette machine non autorisé" });
+    return;
+  }
+  res.json(await getHostMetrics(host));
+});
+
 router.post("/hosts/:id/wake", authMiddleware, async (req, res) => {
   const host = getHost(req.params.id);
   if (!host) {
@@ -790,7 +878,7 @@ router.post("/sessions/ping", authMiddleware, (req, res) => {
   );
   res.json({
     ok: true,
-    version: "1.10.0",
+    version: VERSION,
     host: host
       ? { id: host.id, name: host.name, protocol: host.protocol }
       : null,
