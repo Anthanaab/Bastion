@@ -4,9 +4,8 @@ import InlineAlert from "../components/InlineAlert";
 import Layout from "../components/Layout";
 import { ProtocolBadge } from "../components/ProtocolBadge";
 import Spinner from "../components/Spinner";
-import { useAuth } from "../context/AuthContext";
 import { api } from "../lib/api";
-import type { AuditRecord, LiveSessionRecord, Protocol, SessionRecord } from "../types";
+import type { AuditRecord, Protocol, SessionRecord } from "../types";
 
 function formatWhen(iso: string): string {
   return new Date(iso).toLocaleString("fr-FR", {
@@ -62,10 +61,8 @@ function EmptyState({ icon, title, description }: { icon: string; title: string;
 }
 
 export default function ActivityPage() {
-  const { isAdmin } = useAuth();
-  const [tab, setTab] = useState<"sessions" | "live" | "audit">("sessions");
+  const [tab, setTab] = useState<"sessions" | "audit">("sessions");
   const [sessions, setSessions] = useState<SessionRecord[]>([]);
-  const [live, setLive] = useState<LiveSessionRecord[]>([]);
   const [audit, setAudit] = useState<AuditRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
@@ -74,9 +71,6 @@ export default function ActivityPage() {
     const [s, a] = await Promise.all([api.sessions(80), api.audit(120)]);
     setSessions(s);
     setAudit(a);
-    if (isAdmin) {
-      setLive(await api.liveSessions());
-    }
   };
 
   useEffect(() => {
@@ -97,7 +91,6 @@ export default function ActivityPage() {
           {(
             [
               ["sessions", "Historique"],
-              ...(isAdmin ? ([["live", "Sessions actives"]] as const) : []),
               ["audit", "Journal d'audit"],
             ] as const
           ).map(([key, label]) => (
@@ -128,51 +121,6 @@ export default function ActivityPage() {
       {loading ? (
         <div className="flex justify-center py-20">
           <Spinner />
-        </div>
-      ) : tab === "live" && isAdmin ? (
-        <div className="glass-card overflow-hidden">
-          {live.length === 0 ? (
-            <EmptyState
-              icon="📡"
-              title="Aucune session active"
-              description="Les connexions distantes en cours apparaîtront ici."
-            />
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[520px] text-left text-sm">
-                <thead className="border-b border-bastion-700 bg-bastion-900/50 text-xs uppercase text-slate-500">
-                  <tr>
-                    <th className="px-4 py-3">Machine</th>
-                    <th className="px-4 py-3">Utilisateur</th>
-                    <th className="px-4 py-3">Protocole</th>
-                    <th className="px-4 py-3" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {live.map((row) => (
-                    <tr key={row.sessionId} className="border-b border-bastion-800/80 hover:bg-bastion-900/40">
-                      <td className="px-4 py-3 text-white">{row.hostName}</td>
-                      <td className="px-4 py-3 text-slate-400">{row.username}</td>
-                      <td className="px-4 py-3">
-                        <ProtocolBadge protocol={row.protocol} />
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <button
-                          type="button"
-                          className="btn-secondary text-xs text-red-400"
-                          onClick={() =>
-                            api.terminateSession(row.sessionId).then(() => load())
-                          }
-                        >
-                          Couper
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
         </div>
       ) : tab === "sessions" ? (
         <div className="glass-card overflow-hidden">

@@ -496,8 +496,21 @@ export default function InfrastructurePage() {
                             par {s.username}
                           </span>
                         </span>
-                        <span className="text-xs text-slate-500">
-                          depuis {formatDateTime(s.startedAt).slice(-5)}
+                        <span className="flex items-center gap-3">
+                          <span className="text-xs text-slate-500">
+                            depuis {formatDateTime(s.startedAt).slice(-5)}
+                          </span>
+                          <button
+                            type="button"
+                            className="btn-secondary text-xs text-red-400"
+                            onClick={() =>
+                              void api
+                                .terminateSession(s.sessionId)
+                                .then(() => load(true))
+                            }
+                          >
+                            Couper
+                          </button>
                         </span>
                       </li>
                     ))}
@@ -512,9 +525,17 @@ export default function InfrastructurePage() {
               </div>
 
               <div className="glass-card p-5">
-                <p className="mb-3 text-xs uppercase tracking-wider text-slate-500">
-                  Dernières sessions
-                </p>
+                <div className="mb-3 flex items-center justify-between">
+                  <p className="text-xs uppercase tracking-wider text-slate-500">
+                    Dernières sessions
+                  </p>
+                  <Link
+                    to="/activity"
+                    className="text-xs text-bastion-glow hover:underline"
+                  >
+                    Voir tout →
+                  </Link>
+                </div>
                 {data.sessions.recent.length > 0 ? (
                   <ul className="flex flex-col gap-2">
                     {data.sessions.recent.slice(0, 6).map((s) => (

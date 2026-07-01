@@ -28,7 +28,7 @@ Ouvrez **http://localhost:3000** — identifiants par défaut : `admin` / `admin
 - Vue d'ensemble : machines en ligne/hors ligne, par protocole et par tag
 - **Métriques CPU / RAM / disque** des machines SSH en ligne (collecte via SSH, sans agent)
 - État des services : base de données, guacd, relais WoL
-- Sessions actives et historique récent
+- Sessions actives (avec coupure à distance pour les admins) et historique récent
 - Infos système (admin) : version, uptime, mémoire, utilisateurs, sauvegardes
 
 ### Gestion des machines
@@ -51,8 +51,8 @@ Ouvrez **http://localhost:3000** — identifiants par défaut : `admin` / `admin
 
 ### Activité
 - Historique des sessions
-- Sessions distantes actives (admin) + coupure à distance
 - Journal d'audit
+(les sessions actives en temps réel vivent sur la page Infrastructure)
 
 ### Ops
 - Healthcheck Docker (`/api/health`)
