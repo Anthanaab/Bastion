@@ -15,6 +15,7 @@ import { initSshKnownHosts } from "./ssh-known-hosts";
 import apiRouter from "./routes/api";
 import { handleSshConnection } from "./ws/ssh";
 import { handleGuacdConnection } from "./ws/guacd";
+import { getJwtSecret } from "./auth";
 
 const PORT = parseInt(process.env.PORT ?? "3000", 10);
 
@@ -38,6 +39,30 @@ const GUACD_PORT = parseInt(process.env.GUACD_PORT ?? "4822", 10);
 const ADMIN_USER = process.env.BASTION_ADMIN_USER ?? "admin";
 const ADMIN_PASSWORD = process.env.BASTION_ADMIN_PASSWORD ?? "admin";
 
+try {
+  getJwtSecret();
+} catch (err) {
+  console.error(`[Bastion] ${err instanceof Error ? err.message : err}`);
+  process.exit(1);
+}
+
+if (!process.env.BASTION_ADMIN_PASSWORD || process.env.BASTION_ADMIN_PASSWORD === "admin") {
+  console.warn(
+    "[Bastion] ATTENTION : le compte admin utilise le mot de passe par défaut (\"admin\"). " +
+      "Changez BASTION_ADMIN_PASSWORD ou le mot de passe via l'UI avant d'exposer Bastion."
+  );
+}
+
+if (
+  process.env.WOL_RELAY_URL &&
+  !process.env.WOL_RELAY_SECRET?.trim() &&
+  !process.env.JWT_SECRET?.trim()
+) {
+  console.warn(
+    "[Bastion] ATTENTION : WOL_RELAY_SECRET n'est pas défini — le relais WoL n'est protégé par aucun secret."
+  );
+}
+
 initDatabase(DATABASE_PATH);
 initBackup(DATABASE_PATH);
 initSshKnownHosts(DATABASE_PATH);
@@ -45,12 +70,26 @@ ensureAdminUser(ADMIN_USER, ADMIN_PASSWORD);
 
 const corsOrigins = process.env.BASTION_CORS_ORIGIN?.trim();
 const app = express();
-app.set("trust proxy", 1);
+
+const trustProxyRaw = process.env.BASTION_TRUST_PROXY?.trim();
+if (trustProxyRaw) {
+  const asNumber = Number(trustProxyRaw);
+  app.set(
+    "trust proxy",
+    Number.isFinite(asNumber) ? asNumber : trustProxyRaw
+  );
+} else {
+  // Pas de proxy de confiance par défaut : évite qu'un client falsifie
+  // X-Forwarded-For pour contourner le rate-limit de /login.
+  // Définir BASTION_TRUST_PROXY=1 si Bastion est bien derrière un reverse-proxy (Traefik, etc.).
+  app.set("trust proxy", false);
+}
+
 app.use(
   cors({
-    origin: corsOrigins
-      ? corsOrigins.split(",").map((o) => o.trim())
-      : true,
+    // Sans BASTION_CORS_ORIGIN, on ne reflète plus n'importe quelle origine :
+    // l'usage same-origin standard n'a de toute façon pas besoin de CORS.
+    origin: corsOrigins ? corsOrigins.split(",").map((o) => o.trim()) : false,
     credentials: true,
   })
 );

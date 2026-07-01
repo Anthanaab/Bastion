@@ -69,11 +69,13 @@ Variables à activer :
 ```env
 BASTION_COOKIE_SECURE=true
 BASTION_CORS_ORIGIN=https://bastion.example.com
+BASTION_TRUST_PROXY=1
 ```
 
 Les WebSockets (`/ws/ssh`, `/ws/guacd`) doivent passer par le même routeur Traefik.
 
-> Le token JWT est aussi passé en `?token=` sur les WebSockets Guacamole. Utilisez HTTPS en production.
+> L'authentification (HTTP comme WebSocket) repose sur un cookie httpOnly —
+> utilisez HTTPS en production pour qu'il transite chiffré.
 
 ## Wake-on-LAN
 
@@ -87,10 +89,11 @@ Avec Docker, le service `wol-relay` (réseau host) envoie les paquets sur le LAN
 | Variable | Description | Défaut |
 |----------|-------------|--------|
 | `PORT` | Port HTTP | `3000` |
-| `JWT_SECRET` | Secret JWT (16+ car.) | *(obligatoire en prod)* |
+| `JWT_SECRET` | Secret JWT (16+ car., ≠ valeur d'exemple) | *(obligatoire en prod)* |
 | `BASTION_ENCRYPTION_KEY` | Clé AES-256 hôtes (64 hex) | dérivée de `JWT_SECRET` |
 | `BASTION_COOKIE_SECURE` | Cookie HTTPS only | `false` |
-| `BASTION_CORS_ORIGIN` | Origines CORS (virgules) | toutes |
+| `BASTION_CORS_ORIGIN` | Origines CORS (virgules) | aucune (CORS désactivé) |
+| `BASTION_TRUST_PROXY` | Sauts de reverse-proxy à faire confiance (IP rate-limit) | désactivé |
 | `BASTION_ADMIN_USER` / `BASTION_ADMIN_PASSWORD` | Compte initial | `admin` / `admin` |
 | `WOL_RELAY_URL` / `WOL_RELAY_SECRET` | Relais WoL | voir `.env.example` |
 | `DATABASE_PATH` | Fichier JSON | `/app/data/bastion.json` |

@@ -453,10 +453,12 @@ export function createAuthSession(
   return row;
 }
 
-export function isAuthSessionValid(jti: string): boolean {
+export function isAuthSessionValid(jti: string, userId?: string): boolean {
   pruneExpiredAuthSessions();
   const row = store.authSessions?.find((s) => s.jti === jti);
-  return !!row && !row.revoked;
+  if (!row || row.revoked) return false;
+  if (userId !== undefined && row.userId !== userId) return false;
+  return true;
 }
 
 export function revokeAuthSession(jti: string): void {

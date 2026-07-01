@@ -11,9 +11,21 @@ const SECRET =
   process.env.JWT_SECRET?.trim() ||
   "";
 
+const INSECURE_DEFAULT_SECRETS = new Set([
+  "changez-moi-en-production-avec-une-longue-chaine-aleatoire",
+]);
+
 if (BIND === "0.0.0.0" && !SECRET) {
   console.error(
     "[wol-relay] WOL_RELAY_SECRET est obligatoire avec WOL_RELAY_BIND=0.0.0.0"
+  );
+  process.exit(1);
+}
+
+if (BIND === "0.0.0.0" && INSECURE_DEFAULT_SECRETS.has(SECRET)) {
+  console.error(
+    "[wol-relay] WOL_RELAY_SECRET/JWT_SECRET utilise la valeur d'exemple par défaut du dépôt — " +
+      "générez un secret aléatoire avant de démarrer avec WOL_RELAY_BIND=0.0.0.0"
   );
   process.exit(1);
 }

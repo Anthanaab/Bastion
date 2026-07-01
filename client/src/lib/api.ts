@@ -234,9 +234,10 @@ export function wsBaseUrl(path: string): string {
 }
 
 export function wsConnectData(params: Record<string, string>): string {
+  // Le token n'est plus mis en query string (il finirait dans les logs de
+  // reverse-proxy / l'historique navigateur). L'auth WebSocket repose sur le
+  // cookie httpOnly `bastion_token` déjà posé au login (voir server/src/auth.ts).
   const qs = new URLSearchParams(params);
-  const token = getToken();
-  if (token) qs.set("token", token);
   return qs.toString();
 }
 

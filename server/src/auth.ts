@@ -29,14 +29,28 @@ declare global {
   }
 }
 
+const INSECURE_DEFAULT_SECRETS = new Set([
+  "changez-moi-en-production-avec-une-longue-chaine-aleatoire",
+  "dev-secret-change-in-prod",
+]);
+
 export function getJwtSecret(): string {
   const secret = process.env.JWT_SECRET;
+  const isProd = process.env.NODE_ENV === "production";
+
   if (!secret || secret.length < 16) {
-    if (process.env.NODE_ENV === "production") {
+    if (isProd) {
       throw new Error("JWT_SECRET must be set and at least 16 characters");
     }
     return secret || "dev-secret-change-in-prod";
   }
+
+  if (isProd && INSECURE_DEFAULT_SECRETS.has(secret)) {
+    throw new Error(
+      "JWT_SECRET utilise la valeur d'exemple par défaut du dépôt — générez un secret aléatoire (ex: openssl rand -hex 32) avant de démarrer en production."
+    );
+  }
+
   return secret;
 }
 
@@ -99,7 +113,7 @@ export function authMiddleware(
 
   try {
     const payload = verifyToken(token);
-    if (!payload.jti || !isAuthSessionValid(payload.jti)) {
+    if (!payload.jti || !isAuthSessionValid(payload.jti, payload.userId)) {
       res.status(401).json({ error: "Session révoquée ou expirée" });
       return;
     }
@@ -149,7 +163,7 @@ export function wsAuthFromRequest(
     }
     if (!token) return null;
     const payload = verifyToken(token);
-    if (!payload.jti || !isAuthSessionValid(payload.jti)) return null;
+    if (!payload.jti || !isAuthSessionValid(payload.jti, payload.userId)) return null;
     const user = getUserById(payload.userId);
     if (!user) return null;
     return {
