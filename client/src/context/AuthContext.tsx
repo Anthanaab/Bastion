@@ -77,7 +77,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = async (username: string, password: string, totp?: string) => {
     const res = await api.login(username, password, totp);
-    if ("requiresTotp" in res && res.requiresTotp) {
+    if ("requiresTotp" in res) {
       return { requiresTotp: true as const, challenge: res.challenge };
     }
     setToken(res.token);

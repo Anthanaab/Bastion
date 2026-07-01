@@ -16,6 +16,7 @@ export interface Host {
   tags: string;
   createdAt: string;
   updatedAt: string;
+  secretsUnreadable?: boolean;
 }
 
 export interface Stats {
@@ -68,6 +69,7 @@ export interface User {
   role: UserRole;
   pinnedHostIds?: string[];
   totpEnabled?: boolean;
+  mustChangePassword?: boolean;
 }
 
 export interface UserAccount {
@@ -78,6 +80,7 @@ export interface UserAccount {
   groupIds: string[];
   pinnedHostIds: string[];
   totpEnabled: boolean;
+  mustChangePassword: boolean;
   createdAt: string;
 }
 

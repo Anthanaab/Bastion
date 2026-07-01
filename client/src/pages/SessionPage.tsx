@@ -391,7 +391,6 @@ export default function SessionPage() {
             reconnectRef={remoteReconnectRef}
             fullscreenRef={fullscreenRef}
             immersive={immersive}
-            viewportRef={viewportRef}
           />
         )}
       </div>

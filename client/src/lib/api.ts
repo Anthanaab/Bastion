@@ -144,6 +144,9 @@ export const api = {
       method: "POST",
     }),
 
+  disableUserTotp: (id: string) =>
+    request<{ ok: boolean }>(`/users/${id}/totp`, { method: "DELETE" }),
+
   deleteUser: (id: string) =>
     request<{ ok: boolean }>(`/users/${id}`, { method: "DELETE" }),
 

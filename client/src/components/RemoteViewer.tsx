@@ -19,7 +19,6 @@ interface RemoteViewerProps {
   onStatusChange?: (status: ConnectionStatus) => void;
   reconnectRef?: React.MutableRefObject<(() => void) | null>;
   fullscreenRef?: React.MutableRefObject<(() => void) | null>;
-  viewportRef?: React.RefObject<HTMLDivElement | null>;
   immersive?: boolean;
 }
 
@@ -261,7 +260,6 @@ export default function RemoteViewer({
   onStatusChange,
   reconnectRef,
   fullscreenRef,
-  viewportRef,
   immersive = false,
 }: RemoteViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);

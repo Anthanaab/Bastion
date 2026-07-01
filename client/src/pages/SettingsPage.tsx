@@ -502,6 +502,30 @@ export default function SettingsPage() {
     }
   };
 
+  const handleDisableTotp = async (user: UserAccount) => {
+    if (
+      !confirm(
+        `Désactiver la 2FA de « ${user.username} » ?\nÀ utiliser si ce compte est bloqué après une perte du secret.`
+      )
+    ) {
+      return;
+    }
+    setUserFeedback(null);
+    try {
+      await api.disableUserTotp(user.id);
+      setUserFeedback({
+        text: `2FA désactivée pour ${user.username}`,
+        variant: "success",
+      });
+      await loadUsers();
+    } catch (err) {
+      setUserFeedback({
+        text: err instanceof Error ? err.message : "Erreur",
+        variant: "error",
+      });
+    }
+  };
+
   const handleDeleteUser = async (user: UserAccount) => {
     if (!confirm(`Supprimer l'utilisateur « ${user.username} » ?`)) return;
     setUserFeedback(null);
@@ -662,6 +686,17 @@ export default function SettingsPage() {
                         >
                           ⏻
                         </button>
+                        {user.totpEnabled && (
+                          <button
+                            type="button"
+                            onClick={() => void handleDisableTotp(user)}
+                            className="btn-secondary px-2 text-xs"
+                            aria-label={`Désactiver la 2FA de ${user.username}`}
+                            title="Désactiver la 2FA (compte bloqué)"
+                          >
+                            2FA ✕
+                          </button>
+                        )}
                         <button
                           type="button"
                           onClick={() => handleDeleteUser(user)}

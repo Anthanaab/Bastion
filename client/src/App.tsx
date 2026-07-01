@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
+import ForceChangePassword from "./components/ForceChangePassword";
 import Spinner from "./components/Spinner";
 import { useAuth } from "./context/AuthContext";
 import LoginPage from "./pages/LoginPage";
@@ -53,6 +54,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   }
 
   if (!user) return <Navigate to="/login" replace />;
+  if (user.mustChangePassword) return <ForceChangePassword />;
   return <>{children}</>;
 }
 

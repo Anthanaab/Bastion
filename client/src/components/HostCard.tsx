@@ -179,6 +179,15 @@ export default function HostCard({
           </p>
         )}
 
+        {host.secretsUnreadable && (
+          <p
+            className="mb-3 flex items-center gap-1.5 rounded-md bg-amber-500/10 px-2 py-1 text-xs text-amber-400"
+            title="Le mot de passe ou la clé privée n'a pas pu être déchiffré (clé de chiffrement changée) — reconfigurez cet hôte."
+          >
+            ⚠ Identifiants à ressaisir
+          </p>
+        )}
+
         {host.macAddress && (
           <p className="mb-3 font-mono text-xs text-slate-500">
             MAC : {host.macAddress}
