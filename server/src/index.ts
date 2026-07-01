@@ -136,7 +136,7 @@ app.get("/api/health", async (_req, res) => {
   res.status(healthy ? 200 : 503).json({
     status: healthy ? "ok" : "degraded",
     name: "Bastion",
-    version: "1.9.0",
+    version: "1.10.0",
     checks: { guacd: guacdOk, database: databaseOk },
   });
 });
@@ -196,7 +196,7 @@ server.listen(PORT, "0.0.0.0", () => {
   ║   Passerelle d'accès distant         ║
   ╠══════════════════════════════════════╣
   ║  http://localhost:${String(PORT).padEnd(19)}║
-  ║  Version : 1.9.0${" ".repeat(22)}║
+  ║  Version : 1.10.0${" ".repeat(21)}║
   ║  Admin : ${ADMIN_USER.padEnd(27)}║
   ╚══════════════════════════════════════╝
   `);

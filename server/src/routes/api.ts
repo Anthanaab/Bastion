@@ -790,7 +790,7 @@ router.post("/sessions/ping", authMiddleware, (req, res) => {
   );
   res.json({
     ok: true,
-    version: "1.9.0",
+    version: "1.10.0",
     host: host
       ? { id: host.id, name: host.name, protocol: host.protocol }
       : null,
