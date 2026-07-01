@@ -5,17 +5,21 @@ interface Window {
   resetAt: number;
 }
 
-const windows = new Map<string, Window>();
-
 const CLEANUP_INTERVAL_MS = 10 * 60 * 1000;
-setInterval(() => {
-  const now = Date.now();
-  for (const [key, entry] of windows) {
-    if (now > entry.resetAt) windows.delete(key);
-  }
-}, CLEANUP_INTERVAL_MS).unref();
 
 export function createRateLimiter(maxAttempts: number, windowMs: number) {
+  // Une Map par limiteur : deux appels à createRateLimiter() ne doivent
+  // jamais partager leurs compteurs (sinon /login et /me/totp/confirm,
+  // par ex., s'épuiseraient mutuellement pour une même IP).
+  const windows = new Map<string, Window>();
+
+  setInterval(() => {
+    const now = Date.now();
+    for (const [key, entry] of windows) {
+      if (now > entry.resetAt) windows.delete(key);
+    }
+  }, CLEANUP_INTERVAL_MS).unref();
+
   return (req: Request, res: Response, next: NextFunction): void => {
     const ip =
       (typeof req.ip === "string" && req.ip) ||
