@@ -51,6 +51,7 @@ import { probeTcp } from "../probe";
 import { probeCached, probeHostsCached } from "../status-cache";
 import { checkWolRelay, isValidMac, wakeHost } from "../wol";
 import { getBackupInfo } from "../backup";
+import { getHostMetrics } from "../metrics";
 import { VERSION } from "../version";
 import { loginRateLimit, totpConfirmRateLimit } from "../middleware/rate-limit";
 import {
@@ -806,6 +807,19 @@ router.delete("/hosts/:id", authMiddleware, adminMiddleware, (req, res) => {
     });
   }
   res.json({ ok: true });
+});
+
+router.get("/hosts/:id/metrics", authMiddleware, async (req, res) => {
+  const host = getHost(req.params.id);
+  if (!host) {
+    res.status(404).json({ error: "Hôte introuvable" });
+    return;
+  }
+  if (!canUserAccessHost(req.user!.userId, host.id)) {
+    res.status(403).json({ error: "Accès à cette machine non autorisé" });
+    return;
+  }
+  res.json(await getHostMetrics(host));
 });
 
 router.post("/hosts/:id/wake", authMiddleware, async (req, res) => {

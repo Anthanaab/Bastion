@@ -5,7 +5,12 @@ import Layout from "../components/Layout";
 import { ProtocolBadge } from "../components/ProtocolBadge";
 import Spinner from "../components/Spinner";
 import { api } from "../lib/api";
-import type { InfrastructureSummary, Protocol } from "../types";
+import type {
+  HostMetrics,
+  HostMetricsResult,
+  InfrastructureSummary,
+  Protocol,
+} from "../types";
 
 const REFRESH_INTERVAL_MS = 30_000;
 
@@ -32,6 +37,81 @@ function formatDuration(sec: number | null): string {
   if (sec < 60) return `${sec} s`;
   if (sec < 3_600) return `${Math.round(sec / 60)} min`;
   return `${Math.floor(sec / 3_600)} h ${Math.round((sec % 3_600) / 60)} min`;
+}
+
+function gaugeColor(pct: number): string {
+  if (pct >= 90) return "bg-red-400";
+  if (pct >= 70) return "bg-amber-400";
+  return "bg-emerald-400";
+}
+
+function MiniGauge({ label, pct }: { label: string; pct: number }) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <span className="w-7 text-[10px] uppercase tracking-wide text-slate-500">
+        {label}
+      </span>
+      <div className="h-1.5 w-14 overflow-hidden rounded-full bg-bastion-800">
+        <div
+          className={`h-full rounded-full ${gaugeColor(pct)}`}
+          style={{ width: `${Math.min(100, Math.max(0, pct))}%` }}
+        />
+      </div>
+      <span className="w-8 text-right text-[10px] tabular-nums text-slate-400">
+        {pct}%
+      </span>
+    </div>
+  );
+}
+
+function metricsTooltip(m: HostMetrics): string {
+  const parts: string[] = [];
+  if (m.os) parts.push(m.os);
+  if (m.uptimeSec !== null) parts.push(`allumée depuis ${formatUptime(m.uptimeSec)}`);
+  if (m.cpu) {
+    parts.push(
+      `charge ${m.cpu.load1}${m.cpu.cores ? ` (${m.cpu.cores} cœurs)` : ""}`
+    );
+  }
+  if (m.memory) parts.push(`RAM ${m.memory.usedMb} / ${m.memory.totalMb} Mo`);
+  if (m.disk) parts.push(`disque ${m.disk.usedGb} / ${m.disk.totalGb} Go`);
+  return parts.join(" · ");
+}
+
+function MetricsCell({
+  eligible,
+  result,
+}: {
+  eligible: boolean;
+  result: HostMetricsResult | undefined;
+}) {
+  if (!eligible) {
+    return <span className="text-xs text-slate-600">—</span>;
+  }
+  if (!result) {
+    return <span className="text-xs text-slate-600">…</span>;
+  }
+  if ("error" in result) {
+    return (
+      <span className="text-xs text-slate-600" title={result.error}>
+        indisponibles
+      </span>
+    );
+  }
+  const cpuPct =
+    result.cpu && result.cpu.cores
+      ? Math.round((result.cpu.load1 / result.cpu.cores) * 100)
+      : null;
+  return (
+    <div className="flex flex-col gap-1" title={metricsTooltip(result)}>
+      {cpuPct !== null && <MiniGauge label="CPU" pct={cpuPct} />}
+      {result.memory && <MiniGauge label="RAM" pct={result.memory.usedPct} />}
+      {result.disk && <MiniGauge label="DD" pct={result.disk.usedPct} />}
+      {cpuPct === null && !result.memory && !result.disk && (
+        <span className="text-xs text-slate-600">indisponibles</span>
+      )}
+    </div>
+  );
 }
 
 function StatusDot({ ok, label }: { ok: boolean | null; label?: string }) {
@@ -99,14 +179,34 @@ function CountBar({
 
 export default function InfrastructurePage() {
   const [data, setData] = useState<InfrastructureSummary | null>(null);
+  const [metrics, setMetrics] = useState<Record<string, HostMetricsResult>>({});
   const [error, setError] = useState("");
   const [refreshing, setRefreshing] = useState(false);
+
+  const loadMetrics = (summary: InfrastructureSummary) => {
+    const targets = summary.hosts.items.filter(
+      (h) => h.online && h.protocol === "ssh"
+    );
+    for (const host of targets) {
+      api
+        .hostMetrics(host.id)
+        .then((m) => setMetrics((prev) => ({ ...prev, [host.id]: m })))
+        .catch(() => {
+          setMetrics((prev) => ({
+            ...prev,
+            [host.id]: { hostId: host.id, error: "Métriques injoignables" },
+          }));
+        });
+    }
+  };
 
   const load = async (silent = false) => {
     if (!silent) setRefreshing(true);
     try {
-      setData(await api.infrastructure());
+      const summary = await api.infrastructure();
+      setData(summary);
       setError("");
+      loadMetrics(summary);
     } catch (err) {
       setError(
         err instanceof Error
@@ -304,13 +404,14 @@ export default function InfrastructurePage() {
             </div>
 
             <div className="glass-card mt-4 overflow-x-auto p-0">
-              <table className="w-full min-w-[560px] text-left text-sm">
+              <table className="w-full min-w-[720px] text-left text-sm">
                 <thead>
                   <tr className="border-b border-bastion-800 text-xs uppercase tracking-wider text-slate-500">
                     <th className="px-5 py-3 font-medium">Machine</th>
                     <th className="px-5 py-3 font-medium">Protocole</th>
                     <th className="px-5 py-3 font-medium">Adresse</th>
                     <th className="px-5 py-3 font-medium">Tags</th>
+                    <th className="px-5 py-3 font-medium">Ressources</th>
                     <th className="px-5 py-3 text-right font-medium">Statut</th>
                   </tr>
                 </thead>
@@ -345,6 +446,12 @@ export default function InfrastructurePage() {
                           .filter(Boolean)
                           .join(" · ") || "—"}
                       </td>
+                      <td className="px-5 py-3">
+                        <MetricsCell
+                          eligible={host.online && host.protocol === "ssh"}
+                          result={metrics[host.id]}
+                        />
+                      </td>
                       <td className="px-5 py-3 text-right">
                         <StatusDot
                           ok={host.online}
@@ -355,7 +462,7 @@ export default function InfrastructurePage() {
                   ))}
                   {sortedHosts.length === 0 && (
                     <tr>
-                      <td colSpan={5} className="px-5 py-8 text-center text-slate-500">
+                      <td colSpan={6} className="px-5 py-8 text-center text-slate-500">
                         Aucune machine configurée
                       </td>
                     </tr>

@@ -140,6 +140,18 @@ export interface InfrastructureSummary {
   } | null;
 }
 
+export interface HostMetrics {
+  hostId: string;
+  at: string;
+  os: string | null;
+  uptimeSec: number | null;
+  cpu: { load1: number; cores: number | null } | null;
+  memory: { totalMb: number; usedMb: number; usedPct: number } | null;
+  disk: { totalGb: number; usedGb: number; usedPct: number } | null;
+}
+
+export type HostMetricsResult = HostMetrics | { hostId: string; error: string };
+
 export interface StatusNotification {
   id: string;
   hostId: string;
