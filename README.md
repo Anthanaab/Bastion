@@ -2,7 +2,7 @@
 
 Interface web pour se connecter à vos machines en **SSH**, **RDP** et **VNC** depuis un navigateur.
 
-**Version actuelle : 1.8.1**
+**Version actuelle : 1.9.0**
 
 ## Démarrage rapide (Docker)
 
@@ -110,6 +110,7 @@ Navigateur ──► Bastion (Node.js) ──► SSH direct
 
 | Version | Highlights |
 |---------|------------|
+| **1.9.0** | Durcissement sécurité : rejet du `JWT_SECRET` par défaut au démarrage, sessions liées au `userId`, `trust proxy` désactivé par défaut, token retiré des URL WebSocket, CORS resserré, conteneur non-root, déchiffrement défensif des secrets hôtes/TOTP |
 | **1.8.1** | QR 2FA, révocation sessions UI, groupes à la création user |
 | **1.8.0** | Groupes, 2FA, favoris, WoL intelligent, sessions live, réglages RDP (résolution/qualité) |
 | **1.7.0** | Accès par machine pour opérateurs |
