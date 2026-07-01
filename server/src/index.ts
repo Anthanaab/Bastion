@@ -16,6 +16,7 @@ import apiRouter from "./routes/api";
 import { handleSshConnection } from "./ws/ssh";
 import { handleGuacdConnection } from "./ws/guacd";
 import { getJwtSecret } from "./auth";
+import { assertEncryptionKeyConfigured } from "./crypto";
 
 const PORT = parseInt(process.env.PORT ?? "3000", 10);
 
@@ -41,6 +42,7 @@ const ADMIN_PASSWORD = process.env.BASTION_ADMIN_PASSWORD ?? "admin";
 
 try {
   getJwtSecret();
+  assertEncryptionKeyConfigured();
 } catch (err) {
   console.error(`[Bastion] ${err instanceof Error ? err.message : err}`);
   process.exit(1);

@@ -40,6 +40,12 @@ export function isEncrypted(value: string): boolean {
   return value.startsWith(PREFIX);
 }
 
+/** À appeler au démarrage : échoue tôt et clairement plutôt que de laisser
+ * chaque chiffrement (création/édition d'hôte) planter en 500 plus tard. */
+export function assertEncryptionKeyConfigured(): void {
+  resolveKey();
+}
+
 export function encryptSecret(plaintext: string): string {
   const key = resolveKey();
   const iv = crypto.randomBytes(IV_LENGTH);
