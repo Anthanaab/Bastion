@@ -123,6 +123,9 @@ export function handleSshConnection(ws: WebSocket, request: IncomingMessage): vo
   });
 
   conn.on("error", (err) => {
+    console.error(
+      `[SSH] Erreur connexion ${host.name} (${host.username || "(vide)"}@${host.hostname}:${host.port}): ${err.message}`
+    );
     ws.send(JSON.stringify({ type: "error", message: err.message }));
     ws.close();
     cleanup();
@@ -184,6 +187,12 @@ export function handleSshConnection(ws: WebSocket, request: IncomingMessage): vo
   } else if (host.password) {
     connectConfig.password = host.password;
   }
+
+  console.log(
+    `[SSH] Connexion ${host.name} — user="${host.username || "(vide)"}" ` +
+      `privateKey=${host.privateKey ? "oui(" + host.privateKey.length + " car.)" : "non"} ` +
+      `password=${host.password ? "oui(" + host.password.length + " car.)" : "non"}`
+  );
 
   conn.connect(connectConfig);
 }
