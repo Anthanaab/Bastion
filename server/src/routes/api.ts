@@ -46,7 +46,7 @@ import {
 } from "../auth";
 import { probeTcp } from "../probe";
 import { isValidMac, wakeHost } from "../wol";
-import { loginRateLimit } from "../middleware/rate-limit";
+import { loginRateLimit, totpConfirmRateLimit } from "../middleware/rate-limit";
 import {
   encryptTotpSecret,
   generateTotpSecret,
@@ -182,6 +182,7 @@ function loginResponse(
       role: user.role,
       pinnedHostIds: full?.pinnedHostIds ?? [],
       totpEnabled: !!full?.totpEnabled,
+      mustChangePassword: !!full?.mustChangePassword,
     },
   });
 }
@@ -257,6 +258,7 @@ router.get("/me", authMiddleware, (req, res) => {
       role: req.user!.role,
       pinnedHostIds: user?.pinnedHostIds ?? [],
       totpEnabled: !!user?.totpEnabled,
+      mustChangePassword: !!user?.mustChangePassword,
     },
   });
 });
@@ -587,7 +589,7 @@ router.post("/me/totp/setup", authMiddleware, (req, res) => {
   });
 });
 
-router.post("/me/totp/confirm", authMiddleware, (req, res) => {
+router.post("/me/totp/confirm", authMiddleware, totpConfirmRateLimit, (req, res) => {
   const code = String(req.body?.code ?? "");
   const secret = getUserTotpSecret(req.user!.userId);
   if (!secret || !verifyTotpToken(secret, code)) {
@@ -616,6 +618,26 @@ router.delete("/me/totp", authMiddleware, (req, res) => {
   logAudit(req.user!.username, "totp.disable", "2FA désactivée");
   res.json({ ok: true });
 });
+
+router.delete(
+  "/users/:id/totp",
+  authMiddleware,
+  adminMiddleware,
+  (req, res) => {
+    const target = getUserById(req.params.id);
+    if (!target) {
+      res.status(404).json({ error: "Utilisateur introuvable" });
+      return;
+    }
+    disableUserTotp(target.id);
+    logAudit(
+      req.user!.username,
+      "totp.disable",
+      `2FA désactivée pour ${target.username} (action admin)`
+    );
+    res.json({ ok: true });
+  }
+);
 
 router.get("/hosts/:id", authMiddleware, (req, res) => {
   const host = getHost(req.params.id);

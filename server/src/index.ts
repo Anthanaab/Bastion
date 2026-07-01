@@ -17,6 +17,7 @@ import { handleSshConnection } from "./ws/ssh";
 import { handleGuacdConnection } from "./ws/guacd";
 import { getJwtSecret } from "./auth";
 import { assertEncryptionKeyConfigured } from "./crypto";
+import { probeTcp } from "./probe";
 
 const PORT = parseInt(process.env.PORT ?? "3000", 10);
 
@@ -95,10 +96,23 @@ app.use(
     credentials: true,
   })
 );
+const CSP = [
+  "default-src 'self'",
+  "connect-src 'self' ws: wss:",
+  "img-src 'self' data:",
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+  "font-src 'self' https://fonts.gstatic.com",
+  "script-src 'self'",
+  "frame-ancestors 'self'",
+  "base-uri 'self'",
+  "object-src 'none'",
+].join("; ");
+
 app.use((_req, res, next) => {
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("X-Frame-Options", "SAMEORIGIN");
   res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  res.setHeader("Content-Security-Policy", CSP);
   next();
 });
 app.use(express.json({ limit: "1mb" }));
@@ -113,11 +127,17 @@ app.use((req, _res, next) => {
 
 app.use("/api", apiRouter);
 
-app.get("/api/health", (_req, res) => {
-  res.json({
-    status: "ok",
+app.get("/api/health", async (_req, res) => {
+  const [guacdOk, databaseOk] = await Promise.all([
+    probeTcp(GUACD_HOST, GUACD_PORT, 2000),
+    Promise.resolve(fs.existsSync(DATABASE_PATH)),
+  ]);
+  const healthy = guacdOk && databaseOk;
+  res.status(healthy ? 200 : 503).json({
+    status: healthy ? "ok" : "degraded",
     name: "Bastion",
     version: "1.9.0",
+    checks: { guacd: guacdOk, database: databaseOk },
   });
 });
 

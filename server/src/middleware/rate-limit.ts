@@ -42,3 +42,4 @@ export function createRateLimiter(maxAttempts: number, windowMs: number) {
 }
 
 export const loginRateLimit = createRateLimiter(10, 15 * 60 * 1000);
+export const totpConfirmRateLimit = createRateLimiter(10, 15 * 60 * 1000);

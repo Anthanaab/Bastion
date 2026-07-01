@@ -30,6 +30,8 @@ export interface Host {
   tags: string;
   createdAt: string;
   updatedAt: string;
+  /** true si un secret stocké n'a pas pu être déchiffré (rotation de clé). */
+  secretsUnreadable?: boolean;
 }
 
 export type UserRole = "admin" | "operator";
@@ -61,6 +63,8 @@ export interface User {
   pinnedHostIds?: string[];
   totpSecret?: string | null;
   totpEnabled?: boolean;
+  /** true tant que ce compte utilise encore le mot de passe par défaut. */
+  mustChangePassword?: boolean;
   createdAt: string;
 }
 
@@ -72,6 +76,7 @@ export interface UserPublic {
   groupIds: string[];
   pinnedHostIds: string[];
   totpEnabled: boolean;
+  mustChangePassword: boolean;
   createdAt: string;
 }
 
@@ -142,13 +147,18 @@ function safeDecrypt(
 }
 
 function decryptHost(host: StoredHost): Host {
+  const password = safeDecrypt(host.password, host.name, "password");
+  const privateKey = safeDecrypt(host.privateKey, host.name, "privateKey");
   return {
     ...host,
     macAddress: host.macAddress ?? null,
     wolBroadcast: host.wolBroadcast ?? null,
     keyboardLayout: host.keyboardLayout ?? null,
-    password: safeDecrypt(host.password, host.name, "password"),
-    privateKey: safeDecrypt(host.privateKey, host.name, "privateKey"),
+    password,
+    privateKey,
+    secretsUnreadable:
+      (host.password !== null && password === null) ||
+      (host.privateKey !== null && privateKey === null),
   };
 }
 
@@ -200,6 +210,7 @@ function toUserPublic(user: User): UserPublic {
     groupIds: user.role === "admin" ? [] : (user.groupIds ?? []),
     pinnedHostIds: user.pinnedHostIds ?? [],
     totpEnabled: !!user.totpEnabled,
+    mustChangePassword: !!user.mustChangePassword,
     createdAt: user.createdAt,
   };
 }
@@ -265,6 +276,7 @@ export function ensureAdminUser(username: string, password: string): void {
     username,
     passwordHash: bcrypt.hashSync(password, 12),
     role: "admin",
+    mustChangePassword: password === "admin",
     createdAt: new Date().toISOString(),
   });
   persist();
@@ -580,6 +592,7 @@ export function updateUserPassword(
   const user = store.users.find((u) => u.id === userId);
   if (!user) return false;
   user.passwordHash = bcrypt.hashSync(newPassword, 12);
+  user.mustChangePassword = false;
   persist();
   return true;
 }
