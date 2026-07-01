@@ -122,14 +122,33 @@ let storePath = "";
 let store: Store = { users: [], hosts: [], sessions: [], auditLog: [] };
 const liveSessionIds = new Set<string>();
 
+/** Ne doit jamais throw : un secret illisible (ex. rotation de JWT_SECRET
+ * sans BASTION_ENCRYPTION_KEY séparé) ne doit pas planter toute la liste. */
+function safeDecrypt(
+  value: string | null,
+  hostName: string,
+  field: string
+): string | null {
+  try {
+    return decryptNullable(value);
+  } catch (err) {
+    console.error(
+      `[Bastion] Échec de déchiffrement (${field}) pour l'hôte "${hostName}" — ` +
+        `clé de chiffrement changée ? Reconfigurez les identifiants de cet hôte.`,
+      err instanceof Error ? err.message : err
+    );
+    return null;
+  }
+}
+
 function decryptHost(host: StoredHost): Host {
   return {
     ...host,
     macAddress: host.macAddress ?? null,
     wolBroadcast: host.wolBroadcast ?? null,
     keyboardLayout: host.keyboardLayout ?? null,
-    password: decryptNullable(host.password),
-    privateKey: decryptNullable(host.privateKey),
+    password: safeDecrypt(host.password, host.name, "password"),
+    privateKey: safeDecrypt(host.privateKey, host.name, "privateKey"),
   };
 }
 
@@ -528,7 +547,16 @@ export function disableUserTotp(userId: string): boolean {
 export function getUserTotpSecret(userId: string): string | null {
   const user = getUserById(userId);
   if (!user?.totpSecret) return null;
-  return decryptTotpSecret(user.totpSecret);
+  try {
+    return decryptTotpSecret(user.totpSecret);
+  } catch (err) {
+    console.error(
+      `[Bastion] Échec de déchiffrement du secret TOTP pour "${user.username}" — ` +
+        `clé de chiffrement changée ? Cet utilisateur doit reconfigurer son 2FA.`,
+      err instanceof Error ? err.message : err
+    );
+    return null;
+  }
 }
 
 export function deleteUser(id: string): boolean {
