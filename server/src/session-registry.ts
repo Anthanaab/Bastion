@@ -52,3 +52,18 @@ export function terminateUserLiveSessions(userId: string): number {
   }
   return count;
 }
+
+/** Close duplicate live tunnels for the same user + host before opening a new one. */
+export function terminateUserHostLiveSessions(
+  userId: string,
+  hostId: string
+): number {
+  let count = 0;
+  for (const [id, entry] of live) {
+    if (entry.userId === userId && entry.hostId === hostId) {
+      terminateLiveSession(id);
+      count += 1;
+    }
+  }
+  return count;
+}

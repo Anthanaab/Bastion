@@ -1,7 +1,11 @@
 import type { IncomingMessage } from "http";
 import { WebSocket } from "ws";
 import { getHost, createSession, endSession, getSession, canUserAccessHost } from "../db";
-import { registerLiveSession, unregisterLiveSession } from "../session-registry";
+import {
+  registerLiveSession,
+  unregisterLiveSession,
+  terminateUserHostLiveSessions,
+} from "../session-registry";
 import { wsAuthFromRequest } from "../auth";
 import { GuacdClient, type ConnectionSettings } from "./guacd-client";
 import { toInstruction, splitClientMessage } from "./guacamole-parser";
@@ -193,6 +197,13 @@ export function handleGuacdConnection(
   }
 
   const protocol = host.protocol;
+
+  const replaced = terminateUserHostLiveSessions(user.userId, hostId);
+  if (replaced > 0) {
+    console.log(
+      `[Guacd] ${replaced} session(s) précédente(s) fermée(s) pour ${host.name}`
+    );
+  }
 
   const sessionId = createSession(hostId, protocol, user.username, user.userId);
   registerLiveSession({

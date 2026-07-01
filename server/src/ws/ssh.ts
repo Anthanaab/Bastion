@@ -2,7 +2,11 @@ import type { IncomingMessage } from "http";
 import { Client } from "ssh2";
 import { WebSocket } from "ws";
 import { getHost, createSession, endSession, getSession, canUserAccessHost } from "../db";
-import { registerLiveSession, unregisterLiveSession } from "../session-registry";
+import {
+  registerLiveSession,
+  unregisterLiveSession,
+  terminateUserHostLiveSessions,
+} from "../session-registry";
 import { wsAuthFromRequest } from "../auth";
 import { attachWsKeepAlive } from "./ws-keepalive";
 import { verifySshHostKey } from "../ssh-known-hosts";
@@ -36,6 +40,13 @@ export function handleSshConnection(ws: WebSocket, request: IncomingMessage): vo
   if (!canUserAccessHost(user.userId, host.id)) {
     ws.close(4004, "Accès non autorisé");
     return;
+  }
+
+  const replaced = terminateUserHostLiveSessions(user.userId, hostId);
+  if (replaced > 0) {
+    console.log(
+      `[SSH] ${replaced} session(s) précédente(s) fermée(s) pour ${host.name}`
+    );
   }
 
   const sessionId = createSession(hostId, "ssh", user.username, user.userId);

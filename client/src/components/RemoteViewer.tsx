@@ -313,6 +313,9 @@ export default function RemoteViewer({
     let sessionCleanup: (() => void) | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let attempt = 0;
+    let sessionGen = 0;
+    let openInFlight = false;
+    let reconnectScheduled = false;
 
     const cleanupSession = () => {
       sessionCleanup?.();
@@ -320,11 +323,19 @@ export default function RemoteViewer({
     };
 
     const scheduleReconnect = (reason: string) => {
-      if (cancelled || intentional) return;
+      if (cancelled || intentional || reconnectScheduled) return;
+      reconnectScheduled = true;
+
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
+
       cleanupSession();
       onSessionControlRef.current?.(null);
 
       if (attempt >= MAX_RECONNECT_ATTEMPTS) {
+        reconnectScheduled = false;
         setReconnecting(false);
         setManualReconnect(true);
         setError(`${reason} — reconnexion automatique abandonnée`);
@@ -342,18 +353,34 @@ export default function RemoteViewer({
 
       reconnectTimer = setTimeout(() => {
         reconnectTimer = null;
+        reconnectScheduled = false;
         void openSession();
       }, delay);
     };
 
     const openSession = async () => {
+      if (cancelled || intentional || openInFlight) return;
+      openInFlight = true;
+      const gen = ++sessionGen;
+
+      const releaseOpen = () => {
+        if (gen === sessionGen) openInFlight = false;
+      };
+
       if (attempt === 0) {
         try {
           const ping = await api.sessionPing(hostId);
-          if (cancelled) return;
+          if (cancelled || gen !== sessionGen) {
+            releaseOpen();
+            return;
+          }
           setStatus(`Serveur OK (v${ping.version}) — connexion WebSocket…`);
         } catch (err) {
-          if (cancelled) return;
+          if (cancelled || gen !== sessionGen) {
+            releaseOpen();
+            return;
+          }
+          releaseOpen();
           scheduleReconnect(
             err instanceof Error ? err.message : "Impossible de joindre l'API Bastion"
           );
@@ -363,7 +390,10 @@ export default function RemoteViewer({
         setStatus("Reconnexion WebSocket…");
       }
 
-      if (cancelled || !containerRef.current) return;
+      if (cancelled || !containerRef.current || gen !== sessionGen) {
+        releaseOpen();
+        return;
+      }
 
       const { width, height } = resolveSessionResolution(
         protocol,
@@ -483,6 +513,12 @@ export default function RemoteViewer({
 
       const relaunchForOrientation = () => {
         if (cancelled || intentional) return;
+        if (reconnectTimer) {
+          clearTimeout(reconnectTimer);
+          reconnectTimer = null;
+        }
+        reconnectScheduled = false;
+        sessionGen += 1;
         setStatus("Adaptation orientation…");
         clientConnected = false;
         clearControl();
@@ -490,8 +526,7 @@ export default function RemoteViewer({
           clearTimeout(orientationMismatchTimer);
           orientationMismatchTimer = null;
         }
-        sessionCleanup?.();
-        sessionCleanup = null;
+        cleanupSession();
         attempt = 0;
         void openSession();
       };
@@ -586,6 +621,7 @@ export default function RemoteViewer({
       }
 
       tunnel.onstatechange = (state: number) => {
+        if (gen !== sessionGen) return;
         if (state === Guacamole.Tunnel.State.CONNECTING) {
           setStatus(attempt > 0 ? "Reconnexion WebSocket…" : "Connexion WebSocket…");
         } else if (state === Guacamole.Tunnel.State.OPEN) {
@@ -601,6 +637,7 @@ export default function RemoteViewer({
       };
 
       tunnel.onerror = (tunnelStatus: Guacamole.Status) => {
+        if (gen !== sessionGen) return;
         clientConnected = false;
         clearControl();
         if (tunnelStatus.code === Guacamole.Status.Code.UPSTREAM_TIMEOUT) {
@@ -613,9 +650,12 @@ export default function RemoteViewer({
       };
 
       client.onstatechange = (state: number) => {
+        if (gen !== sessionGen) return;
         if (state === Guacamole.Client.State.CONNECTED) {
           clientConnected = true;
           attempt = 0;
+          reconnectScheduled = false;
+          releaseOpen();
           setReconnecting(false);
           setManualReconnect(false);
           setStatus("Connecté");
@@ -630,6 +670,7 @@ export default function RemoteViewer({
       };
 
       client.onerror = (err: Guacamole.Status) => {
+        if (gen !== sessionGen) return;
         clientConnected = false;
         clearControl();
         scheduleReconnect(err.message || "Erreur de connexion distante");
@@ -638,19 +679,24 @@ export default function RemoteViewer({
       client.connect(connectData);
 
       const handshakeTimeout = window.setTimeout(() => {
-        if (!guacdReady && !cancelled) {
-          scheduleReconnect(
-            "Handshake guacd expiré — vérifiez docker logs bastion et identifiants RDP"
-          );
-        }
+        if (gen !== sessionGen || guacdReady || cancelled) return;
+        scheduleReconnect(
+          "Handshake guacd expiré — vérifiez docker logs bastion et identifiants RDP"
+        );
       }, 15000);
 
       const timeout = window.setTimeout(() => {
-        if (!clientConnected && client.getDisplay().getWidth() === 0 && !cancelled) {
-          scheduleReconnect(
-            "Délai dépassé — identifiants RDP ou pare-feu Windows à vérifier"
-          );
+        if (
+          gen !== sessionGen ||
+          clientConnected ||
+          client.getDisplay().getWidth() !== 0 ||
+          cancelled
+        ) {
+          return;
         }
+        scheduleReconnect(
+          "Délai dépassé — identifiants RDP ou pare-feu Windows à vérifier"
+        );
       }, 90000);
 
       const resizeObserver = new ResizeObserver(() => {
@@ -669,6 +715,7 @@ export default function RemoteViewer({
       window.visualViewport?.addEventListener("resize", handleViewportChange);
 
       sessionCleanup = () => {
+        if (gen !== sessionGen) return;
         viewportChangeRef.current = null;
         if (clientConnected) clearControl();
         element.removeEventListener("paste", onPaste);
@@ -682,13 +729,28 @@ export default function RemoteViewer({
         resizeObserver.disconnect();
         window.removeEventListener("orientationchange", onOrientationChange);
         window.visualViewport?.removeEventListener("resize", handleViewportChange);
+        tunnel.onstatechange = null;
+        tunnel.onerror = null;
+        client.onstatechange = null;
+        client.onerror = null;
+        client.onsync = null;
+        if (protocol === "rdp") {
+          client.onclipboard = null;
+        }
         pointerInput.detach();
         keyboardInput.detach();
+        releaseOpen();
         client.disconnect();
       };
     };
 
     manualReconnectRef.current = () => {
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
+      reconnectScheduled = false;
+      sessionGen += 1;
       attempt = 0;
       intentional = false;
       setManualReconnect(false);
@@ -706,8 +768,10 @@ export default function RemoteViewer({
       window.clearTimeout(startTimer);
       cancelled = true;
       intentional = true;
+      sessionGen += 1;
       manualReconnectRef.current = null;
       if (reconnectTimer) clearTimeout(reconnectTimer);
+      reconnectScheduled = false;
       cleanupSession();
       onSessionControlRef.current?.(null);
     };

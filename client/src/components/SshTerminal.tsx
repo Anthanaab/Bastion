@@ -35,6 +35,9 @@ export default function SshTerminal({
     let ws: WebSocket | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let attempt = 0;
+    let connectionGen = 0;
+    let openInFlight = false;
+    let reconnectScheduled = false;
 
     const term = new Terminal({
       cursorBlink: true,
@@ -94,17 +97,24 @@ export default function SshTerminal({
     };
 
     const scheduleReconnect = (reason: string) => {
-      if (cancelled || intentional) return;
+      if (cancelled || intentional || reconnectScheduled) return;
+      reconnectScheduled = true;
       connected = false;
       clearControl();
       closeWs();
 
       if (attempt >= MAX_RECONNECT_ATTEMPTS) {
+        reconnectScheduled = false;
         term.writeln(
           `\r\n\x1b[31m${reason} — reconnexion automatique abandonnée.\x1b[0m`
         );
         term.writeln("\x1b[33mRechargez la page pour réessayer.\x1b[0m");
         return;
+      }
+
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
       }
 
       const delay = reconnectDelay(attempt);
@@ -115,11 +125,18 @@ export default function SshTerminal({
 
       reconnectTimer = setTimeout(() => {
         reconnectTimer = null;
+        reconnectScheduled = false;
         openConnection();
       }, delay);
     };
 
     const manualReconnect = () => {
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
+      reconnectScheduled = false;
+      connectionGen += 1;
       attempt = 0;
       intentional = false;
       closeWs();
@@ -128,7 +145,13 @@ export default function SshTerminal({
     reconnectFn = manualReconnect;
 
     const openConnection = () => {
-      if (cancelled || intentional) return;
+      if (cancelled || intentional || openInFlight) return;
+      openInFlight = true;
+      const gen = ++connectionGen;
+
+      const releaseOpen = () => {
+        if (gen === connectionGen) openInFlight = false;
+      };
 
       const cols = term.cols;
       const rows = term.rows;
@@ -138,19 +161,24 @@ export default function SshTerminal({
       ws.binaryType = "arraybuffer";
 
       ws.onopen = () => {
+        if (gen !== connectionGen) return;
         term.writeln("\x1b[38;5;214m[Bastion]\x1b[0m Connexion SSH en cours…");
       };
 
       ws.onmessage = (event) => {
+        if (gen !== connectionGen) return;
         if (typeof event.data === "string") {
           try {
             const msg = JSON.parse(event.data) as { type: string; message?: string };
             if (msg.type === "error") {
               term.writeln(`\r\n\x1b[31mErreur : ${msg.message}\x1b[0m`);
+              releaseOpen();
               scheduleReconnect(msg.message || "Erreur SSH");
             } else if (msg.type === "connected") {
               connected = true;
               attempt = 0;
+              reconnectScheduled = false;
+              releaseOpen();
               publishControl();
               term.writeln("\x1b[32mConnecté.\x1b[0m\r\n");
             }
@@ -163,6 +191,8 @@ export default function SshTerminal({
       };
 
       ws.onclose = () => {
+        if (gen !== connectionGen) return;
+        releaseOpen();
         if (intentional || cancelled) {
           connected = false;
           clearControl();
@@ -173,9 +203,8 @@ export default function SshTerminal({
       };
 
       ws.onerror = () => {
-        if (!intentional && !cancelled) {
-          scheduleReconnect("Erreur réseau SSH");
-        }
+        if (gen !== connectionGen || intentional || cancelled) return;
+        // onclose suit généralement — scheduleReconnect est dédupliqué
       };
     };
 
@@ -202,7 +231,9 @@ export default function SshTerminal({
     return () => {
       cancelled = true;
       intentional = true;
+      connectionGen += 1;
       if (reconnectTimer) clearTimeout(reconnectTimer);
+      reconnectScheduled = false;
       clearControl();
       closeWs();
       resizeObserver.disconnect();
