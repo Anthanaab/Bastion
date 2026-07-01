@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { Host } from "../types";
-import { api } from "../lib/api";
+import { api, pollHostOnline } from "../lib/api";
 import InlineAlert from "./InlineAlert";
 import { ProtocolBadge, protocolIcon } from "./ProtocolBadge";
 
@@ -14,6 +14,7 @@ interface HostCardProps {
   onDelete: (host: Host) => void;
   canManage?: boolean;
   onTagClick?: (tag: string) => void;
+  onHostOnline?: () => void;
 }
 
 export default function HostCard({
@@ -25,6 +26,7 @@ export default function HostCard({
   onDelete,
   canManage = true,
   onTagClick,
+  onHostOnline,
 }: HostCardProps) {
   const navigate = useNavigate();
   const [waking, setWaking] = useState(false);
@@ -33,6 +35,11 @@ export default function HostCard({
     variant: "success" | "error" | "info";
   } | null>(null);
   const [readyToConnect, setReadyToConnect] = useState(false);
+  const wakeAbortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    return () => wakeAbortRef.current?.abort();
+  }, []);
 
   const tags = host.tags
     ? host.tags.split(",").map((t) => t.trim()).filter(Boolean)
@@ -44,33 +51,68 @@ export default function HostCard({
 
   const handleWake = async (event: React.MouseEvent) => {
     event.stopPropagation();
+    wakeAbortRef.current?.abort();
+    const abort = new AbortController();
+    wakeAbortRef.current = abort;
+
     setWaking(true);
     setWakeFeedback(null);
     setReadyToConnect(false);
+    setWakeFeedback({
+      text: "Envoi du réveil Wake-on-LAN…",
+      variant: "info",
+    });
+
     try {
-      const result = await api.wakeHost(host.id, true);
-      if (result.online) {
+      const result = await api.wakeHost(host.id, false);
+      if (abort.signal.aborted) return;
+
+      setWakeFeedback({
+        text: "Démarrage en cours — attente de la disponibilité…",
+        variant: "info",
+      });
+
+      const becameOnline = await pollHostOnline(host.id, {
+        signal: abort.signal,
+        onProgress: (elapsedSec) => {
+          if (abort.signal.aborted) return;
+          setWakeFeedback({
+            text: `Démarrage en cours… (${elapsedSec}s)`,
+            variant: "info",
+          });
+        },
+      });
+
+      if (abort.signal.aborted) return;
+
+      if (becameOnline) {
         setWakeFeedback({
           text: "Machine en ligne — vous pouvez vous connecter",
           variant: "success",
         });
         setReadyToConnect(true);
+        onHostOnline?.();
       } else {
         setWakeFeedback({
           text: result.hint
-            ? `Paquet envoyé. ${result.hint}`
-            : "Démarrage en cours — la machine n'est pas encore en ligne",
+            ? `Paquet envoyé. ${result.hint} La machine met plus de 2 minutes à répondre.`
+            : "La machine ne répond pas encore — le démarrage peut prendre encore un moment. Réessayez ou connectez-vous dans quelques instants.",
           variant: "info",
         });
       }
-      setTimeout(() => setWakeFeedback(null), 12000);
+      window.setTimeout(() => setWakeFeedback(null), 15_000);
     } catch (err) {
-      setWakeFeedback({
-        text: err instanceof Error ? err.message : "Échec WoL",
-        variant: "error",
-      });
+      if (!abort.signal.aborted) {
+        setWakeFeedback({
+          text: err instanceof Error ? err.message : "Échec WoL",
+          variant: "error",
+        });
+      }
     } finally {
-      setWaking(false);
+      if (wakeAbortRef.current === abort) {
+        setWaking(false);
+        wakeAbortRef.current = null;
+      }
     }
   };
 
@@ -183,7 +225,7 @@ export default function HostCard({
               className="btn-secondary relative z-10 min-h-[44px] px-3"
               title="Réveiller et attendre la mise en ligne"
             >
-              {waking ? "…" : "⚡ Réveiller"}
+              {waking ? "Démarrage…" : "⚡ Réveiller"}
             </button>
           )}
           {canManage && (

@@ -415,6 +415,7 @@ export default function DashboardPage() {
               onEdit={openEdit}
               onDelete={handleDelete}
               canManage={isAdmin}
+              onHostOnline={refreshHostStatus}
               onTagClick={(tag) =>
                 setTagFilter((current) => (current === tag ? null : tag))
               }

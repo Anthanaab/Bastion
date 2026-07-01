@@ -201,7 +201,11 @@ export const api = {
   wakeHost: (hostId: string, wait = false) =>
     request<{ ok: boolean; sentTo: string[]; hint?: string; online?: boolean }>(
       `/hosts/${hostId}/wake`,
-      { method: "POST", body: JSON.stringify({ wait }) }
+      {
+        method: "POST",
+        body: JSON.stringify({ wait }),
+        timeoutMs: wait ? 130_000 : 20_000,
+      }
     ),
 
   sessions: (limit = 50) =>
@@ -239,4 +243,37 @@ export function wsConnectData(params: Record<string, string>): string {
 export function wsUrl(path: string, params: Record<string, string>): string {
   const qs = wsConnectData(params);
   return `${wsBaseUrl(path)}?${qs}`;
+}
+
+export const WAKE_POLL_INTERVAL_MS = 2000;
+export const WAKE_MAX_WAIT_MS = 120_000;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+/** Attend qu'une machine réponde au probe TCP (après WoL), avec retours visuels */
+export async function pollHostOnline(
+  hostId: string,
+  options?: {
+    onProgress?: (elapsedSec: number) => void;
+    signal?: AbortSignal;
+  }
+): Promise<boolean> {
+  const started = Date.now();
+  while (Date.now() - started < WAKE_MAX_WAIT_MS) {
+    if (options?.signal?.aborted) return false;
+    await sleep(WAKE_POLL_INTERVAL_MS);
+    const elapsed = Math.round((Date.now() - started) / 1000);
+    options?.onProgress?.(elapsed);
+    try {
+      const statuses = await request<Record<string, boolean>>("/hosts/status", {
+        timeoutMs: 10_000,
+      });
+      if (statuses[hostId]) return true;
+    } catch {
+      // Réseau ou bastion lent pendant le boot — on continue d'attendre
+    }
+  }
+  return false;
 }
