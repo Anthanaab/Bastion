@@ -91,6 +91,55 @@ export interface AccessGroup {
   createdAt: string;
 }
 
+export interface InfraServiceCounts {
+  total: number;
+  online: number;
+}
+
+export interface InfraHostItem {
+  id: string;
+  name: string;
+  hostname: string;
+  port: number;
+  protocol: Protocol;
+  online: boolean;
+  wolCapable: boolean;
+  tags: string;
+  color: string;
+}
+
+export interface InfrastructureSummary {
+  generatedAt: string;
+  hosts: {
+    total: number;
+    online: number;
+    offline: number;
+    wolCapable: number;
+    byProtocol: Record<string, InfraServiceCounts>;
+    byTag: Record<string, InfraServiceCounts>;
+    items: InfraHostItem[];
+  };
+  services: {
+    guacd: boolean;
+    database: boolean;
+    wolRelay: { configured: boolean; ok: boolean; url: string | null };
+  };
+  sessions: {
+    active: number;
+    live: LiveSessionRecord[] | null;
+    recent: SessionRecord[];
+  };
+  system: {
+    version: string;
+    uptimeSec: number;
+    nodeVersion: string;
+    platform: string;
+    memoryMb: number;
+    users: number;
+    backups: { count: number; lastBackupAt: string | null };
+  } | null;
+}
+
 export interface StatusNotification {
   id: string;
   hostId: string;

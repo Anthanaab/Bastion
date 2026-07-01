@@ -156,6 +156,31 @@ function relayUrls(): string[] {
   return [...urls];
 }
 
+export interface WolRelayStatus {
+  configured: boolean;
+  ok: boolean;
+  url: string | null;
+}
+
+/** Vérifie qu'un relais WoL répond sur /health (pour la page Infrastructure). */
+export async function checkWolRelay(): Promise<WolRelayStatus> {
+  const configured = Boolean(process.env.WOL_RELAY_URL?.trim());
+  const checks = relayUrls().map(async (base) => {
+    const response = await fetch(`${base}/health`, {
+      headers: relayAuthHeaders(),
+      signal: AbortSignal.timeout(2_000),
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return base;
+  });
+  try {
+    const url = await Promise.any(checks);
+    return { configured, ok: true, url };
+  } catch {
+    return { configured, ok: false, url: null };
+  }
+}
+
 async function wakeViaRelay(
   macAddress: string,
   targets: string[]

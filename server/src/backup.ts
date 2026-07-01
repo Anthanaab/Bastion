@@ -34,6 +34,29 @@ export function maybeBackup(reason = "persist"): void {
   }
 }
 
+export interface BackupInfo {
+  count: number;
+  lastBackupAt: string | null;
+}
+
+export function getBackupInfo(): BackupInfo {
+  if (!dbPath) return { count: 0, lastBackupAt: null };
+  const dir = path.join(path.dirname(dbPath), "backups");
+  try {
+    const files = fs
+      .readdirSync(dir)
+      .filter((f) => f.startsWith("bastion-") && f.endsWith(".json"))
+      .map((f) => fs.statSync(path.join(dir, f)).mtimeMs);
+    if (files.length === 0) return { count: 0, lastBackupAt: null };
+    return {
+      count: files.length,
+      lastBackupAt: new Date(Math.max(...files)).toISOString(),
+    };
+  } catch {
+    return { count: 0, lastBackupAt: null };
+  }
+}
+
 function rotateBackups(dir: string): void {
   const files = fs
     .readdirSync(dir)
