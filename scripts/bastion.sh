@@ -175,17 +175,33 @@ install_guacd() {
     || apt-get install -y -qq --no-install-recommends freerdp2-dev >/dev/null 2>&1 \
     || warn "Aucun paquet freerdp-dev : guacd sera construit sans RDP."
 
-  local build
+  local build log
   build=$(mktemp -d)
+  log=/var/log/bastion-guacd-build.log
   curl -fsSL "$GUACD_TARBALL" -o "$build/src.tar.gz" \
     || die "Téléchargement impossible : $GUACD_TARBALL"
   tar xzf "$build/src.tar.gz" -C "$build"
-  (
-    cd "$build/guacamole-server-${GUACD_VERSION}"
-    ./configure --quiet --prefix=/usr/local >/dev/null
-    make -s -j"$(nproc)"
-    make -s install
-  ) || die "Échec de la compilation de guacamole-server."
+
+  # guacamole-server compile avec -Werror. FreeRDP a déprécié codecs_free en
+  # 3.6.0 et Debian 13 fournit la 3.15 : inclure freerdp/codecs.h suffit alors
+  # à faire échouer le build. La dépréciation n'est pas une suppression, la
+  # fonction reste utilisable — on refuse juste d'en faire une erreur.
+  # CFLAGS est placé après AM_CFLAGS sur la ligne de compilation, donc gagne.
+  local cflags="-g -O2 -Wno-deprecated-declarations"
+
+  # Chaque étape porte son propre `|| exit` : dans un sous-shell membre d'une
+  # liste ||, set -e est neutralisé, et un make raté enchaînerait sur
+  # make install (ce qui produisait une installation partielle).
+  if ! (
+    cd "$build/guacamole-server-${GUACD_VERSION}" || exit 1
+    ./configure --prefix=/usr/local CFLAGS="$cflags" || exit 1
+    make -j"$(nproc)" || exit 1
+    make install || exit 1
+  ) >"$log" 2>&1; then
+    warn "Échec de la compilation de guacamole-server. 40 dernières lignes :"
+    tail -40 "$log" >&2
+    die "Journal complet : $log"
+  fi
   ldconfig
   rm -rf "$build"
 
