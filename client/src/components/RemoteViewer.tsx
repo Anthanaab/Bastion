@@ -679,7 +679,7 @@ export default function RemoteViewer({
       const handshakeTimeout = window.setTimeout(() => {
         if (gen !== sessionGen || guacdReady || cancelled) return;
         scheduleReconnect(
-          "Handshake guacd expiré — vérifiez docker logs bastion et identifiants RDP"
+          "Handshake guacd expiré — vérifiez que guacd est joignable et les identifiants de la machine"
         );
       }, 15000);
 

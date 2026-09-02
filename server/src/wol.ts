@@ -221,7 +221,8 @@ async function wakeViaRelay(
 
   const detail = lastError?.message ?? "connexion refusée";
   throw new Error(
-    `Relais WoL injoignable (${detail}). Vérifiez que bastion-wol-relay tourne : docker ps | grep wol-relay`
+    `Relais WoL injoignable (${detail}). Vérifiez que le service wol-relay tourne, ` +
+      `ou retirez WOL_RELAY_URL si Bastion est directement sur le LAN et peut émettre les paquets lui-même.`
   );
 }
 
