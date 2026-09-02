@@ -424,9 +424,14 @@ ask_text() { # titre, question, défaut
   echo "${v:-$3}"
 }
 
+# pveam liste plusieurs architectures pour un même template. Un tri seul
+# choisirait arm64 (« arm » > « amd »), d'où le filtrage explicite sur
+# l'architecture de l'hôte.
+HOST_ARCH="${HOST_ARCH:-$(dpkg --print-architecture 2>/dev/null || echo amd64)}"
+
 pick_template() {
   pveam available --section system 2>/dev/null | awk '{print $2}' \
-    | grep -E "^$1" | sort -V | tail -1
+    | grep -E "^$1" | grep -E "_${HOST_ARCH}\.tar" | sort -V | tail -1
 }
 
 wizard() {
@@ -546,7 +551,8 @@ host_main() {
   CPU / RAM       ${CORES} vCPU / ${RAM} Mo (+${SWAP} Mo swap)
   Disque          ${DISK} Go sur ${STORAGE}
   Réseau          ${BRIDGE} — ${NET_CONF}
-  Type            non privilégié
+  Architecture    ${HOST_ARCH}
+  Type            non privilégié, nesting activé
   Port Bastion    ${BASTION_PORT}
   Compte admin    ${BASTION_ADMIN_USER}
   ──────────────────────────────────────────────
@@ -567,13 +573,22 @@ SUMMARY
     --rootfs "${STORAGE}:${DISK}"
     --net0 "name=eth0,bridge=${BRIDGE},${NET_CONF}"
     --unprivileged 1 --onboot "$ONBOOT"
+    # systemd 257 (Debian 13) refuse de démarrer dans un conteneur non
+    # privilégié sans nesting : il lui faut ses propres montages cgroup.
+    --features nesting=1
     --description "Bastion — passerelle SSH/RDP/VNC. Mise a jour : pct exec $CTID -- update"
   )
   [[ -n "$CT_PASSWORD" ]] && create+=(--password "$CT_PASSWORD")
   pct create "${create[@]}"
 
   msg "Démarrage…"
-  pct start "$CTID"
+  if ! pct start "$CTID"; then
+    warn "Le conteneur $CTID n'a pas démarré ; il est laissé en place pour inspection."
+    echo "    pct config $CTID                # vérifier arch et features"
+    echo "    lxc-start -n $CTID -F -l DEBUG  # démarrage verbeux"
+    echo "    pct destroy $CTID               # repartir de zéro"
+    exit 1
+  fi
 
   msg "Attente du réseau…"
   local i
