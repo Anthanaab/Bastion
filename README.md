@@ -177,7 +177,7 @@ Les WebSockets (`/ws/ssh`, `/ws/guacd`) doivent passer par le même routeur Trae
 
 ## Wake-on-LAN
 
-1. Renseignez la **MAC** (broadcast optionnel, ex. `192.168.50.255`)
+1. Renseignez la **MAC** (broadcast optionnel, ex. `192.168.1.255`)
 2. Cliquez **Réveiller** — Bastion attend jusqu'à 2 min que la machine réponde
 
 Avec Docker, le service `wol-relay` (réseau host) envoie les paquets sur le LAN.

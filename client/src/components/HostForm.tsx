@@ -223,7 +223,7 @@ export default function HostForm({ initial, onSubmit, onCancel }: HostFormProps)
           className="input-field font-mono"
           value={wolBroadcast}
           onChange={(e) => setWolBroadcast(e.target.value)}
-          placeholder="192.168.50.255"
+          placeholder="192.168.1.255"
         />
         <p className="mt-1 text-xs text-slate-500">
           Broadcast du sous-réseau de la machine (souvent x.x.x.255).
