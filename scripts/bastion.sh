@@ -614,16 +614,25 @@ SUMMARY
   [[ -n "$BASTION_ADMIN_PASSWORD" ]] && envs+=("BASTION_ADMIN_PASSWORD=$BASTION_ADMIN_PASSWORD")
   [[ -n "$BASTION_PUBLIC_ORIGIN" ]] && envs+=("BASTION_PUBLIC_ORIGIN=$BASTION_PUBLIC_ORIGIN")
 
-  # Si ce script est un vrai fichier local, on le pousse tel quel ; sinon
-  # (exécution via curl | bash) le conteneur le retélécharge.
-  local self="${BASH_SOURCE[0]:-}"
-  if [[ -f "$self" ]]; then
-    pct push "$CTID" "$self" /root/bastion.sh --perms 755
-    pct exec "$CTID" -- env "${envs[@]}" bash /root/bastion.sh --install
-  else
-    pct exec "$CTID" -- env "${envs[@]}" bash -c \
-      "curl -fsSL '$SELF_URL' -o /root/bastion.sh && bash /root/bastion.sh --install"
+  # Le script est toujours poussé depuis l'hôte : le template Debian standard
+  # ne fournit ni curl ni wget, et les installer d'abord ajouterait un
+  # aller-retour apt avant même de savoir si le réseau du conteneur sort.
+  local source="${BASH_SOURCE[0]:-}"
+  local tmp=""
+  if [[ ! -f "$source" ]]; then
+    # Exécution via `curl | bash` : pas de fichier source, on le récupère
+    # sur l'hôte, qui lui dispose forcément d'un client HTTP.
+    tmp=$(mktemp)
+    curl -fsSL "$SELF_URL" -o "$tmp" 2>/dev/null \
+      || wget -qO "$tmp" "$SELF_URL" 2>/dev/null \
+      || die "Impossible de récupérer l'installeur depuis $SELF_URL"
+    [[ -s "$tmp" ]] || die "Installeur vide téléchargé depuis $SELF_URL"
+    source="$tmp"
   fi
+
+  pct push "$CTID" "$source" /root/bastion.sh --perms 755
+  [[ -n "$tmp" ]] && rm -f "$tmp"
+  pct exec "$CTID" -- env "${envs[@]}" bash /root/bastion.sh --install
 
   echo
   ok "Terminé."
