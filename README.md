@@ -4,7 +4,98 @@ Interface web pour se connecter à vos machines en **SSH**, **RDP** et **VNC** d
 
 **Version actuelle : 1.11.0**
 
+## Installation LXC (Proxmox)
+
+Depuis le shell de l'hôte Proxmox :
+
+```bash
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/Anthanaab/Bastion/main/scripts/bastion.sh)"
+```
+
+Un assistant propose **Paramètres recommandés** (2 vCPU / 2 Go / 8 Go, DHCP,
+mot de passe admin généré) ou **Paramètres avancés** : CTID, nom d'hôte, CPU,
+RAM, disque, stockage, pont réseau, IP fixe ou DHCP, mot de passe root, serveur
+SSH, puis port HTTP, compte admin et URL publique si Bastion passe derrière un
+reverse-proxy HTTPS.
+
+Le script crée ensuite un conteneur Debian non privilégié, y installe Node 22,
+`guacd` et Bastion, génère les secrets et affiche l'URL et le mot de passe admin.
+
+Sans assistant (CI, ou `whiptail` absent), tout est surchargeable par variable :
+`CTID`, `CT_HOSTNAME`, `CORES`, `RAM`, `DISK`, `STORAGE`, `BRIDGE`, `ENABLE_SSH`,
+`BASTION_PORT`, `NET_CONF` (ex. `NET_CONF="ip=192.168.1.50/24,gw=192.168.1.1"`).
+
+Le même script s'utilise dans un conteneur ou une VM Debian déjà existants :
+
+```bash
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/Anthanaab/Bastion/main/scripts/bastion.sh)" -- --install
+```
+
+**Mise à jour** — dans la console du conteneur (`pct enter <CTID>`), tapez :
+
+```bash
+update
+```
+
+Cela met à jour Debian puis Bastion (git pull, dépendances, rebuild, redémarrage
+du service). La configuration (`/etc/bastion/bastion.env`) et les données
+(`/var/lib/bastion/`) ne sont jamais touchées.
+
+| Chemin | Contenu |
+|--------|---------|
+| `/opt/bastion` | code (lecture seule pour le service) |
+| `/etc/bastion/bastion.env` | secrets et configuration |
+| `/var/lib/bastion/` | `bastion.json`, `backups/`, `ssh-known-hosts.json` |
+
+En LXC le conteneur est directement sur le LAN : le **Wake-on-LAN part de
+Bastion lui-même**, le service `wol-relay` (nécessaire uniquement pour
+contourner le réseau bridge de Docker) n'est pas déployé.
+
+### Migrer une installation Docker existante
+
+Les mots de passe d'hôtes et les secrets TOTP sont chiffrés en AES-256-GCM.
+**Reprenez impérativement les secrets de l'ancienne installation**, sinon ils
+seront illisibles. Si `BASTION_ENCRYPTION_KEY` était vide dans votre `.env`, la
+clé est dérivée de `JWT_SECRET` : ce dernier suffit alors.
+
+Sur la machine Docker — archivez le volume de données :
+
+```bash
+docker compose stop bastion
+docker cp bastion:/app/data ./bastion-data
+tar czf bastion-data.tar.gz -C ./bastion-data .
+grep -E '^(JWT_SECRET|BASTION_ENCRYPTION_KEY)=' .env
+```
+
+(`docker cp` s'appuie sur le nom de conteneur `bastion` fixé par
+`container_name`, ce qui évite d'avoir à deviner le nom du volume.)
+
+Sur l'hôte Proxmox, après avoir créé le LXC :
+
+```bash
+pct push <CTID> bastion-data.tar.gz /root/bastion-data.tar.gz
+pct enter <CTID>
+bastion-restore /root/bastion-data.tar.gz
+```
+
+L'import demande les secrets de façon interactive : passez par `pct enter`,
+qui fournit un terminal, plutôt que par `pct exec`. En non interactif,
+donnez-les par variable :
+
+```bash
+pct exec <CTID> -- env OLD_JWT_SECRET='…' OLD_ENCRYPTION_KEY='' \
+  bastion-restore /root/bastion-data.tar.gz
+```
+
+La restauration sauvegarde les données courantes dans
+`/var/lib/bastion.avant-import-<date>`, restaure `bastion.json`, les backups et
+`ssh-known-hosts.json`, puis redémarre le service. Vérifiez ensuite qu'un hôte
+SSH ou RDP se connecte : c'est ce qui valide le déchiffrement.
+
+Gardez la pile Docker à l'arrêt (mais pas supprimée) le temps de valider.
+
 ## Démarrage rapide (Docker)
+
 
 ```bash
 cp .env.example .env

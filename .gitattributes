@@ -1,0 +1,3 @@
+# Les scripts shell doivent rester en LF : un checkout Windows en CRLF
+# produirait "bad interpreter: /usr/bin/env bash^M" sur la cible Linux.
+*.sh text eol=lf
