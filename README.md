@@ -151,7 +151,7 @@ Ouvrez **http://localhost:3000** — identifiants par défaut : `admin` / `admin
 (les sessions actives en temps réel vivent sur la page Infrastructure)
 
 ### Ops
-- Healthcheck Docker (`/api/health`)
+- Endpoint de santé `/api/health` (healthcheck Docker, état des services en LXC)
 - Sauvegarde auto de `bastion.json` (toutes les 6 h, 14 rotations)
 
 ## HTTPS avec Traefik
@@ -185,7 +185,12 @@ Les WebSockets (`/ws/ssh`, `/ws/guacd`) doivent passer par le même routeur Trae
 1. Renseignez la **MAC** (broadcast optionnel, ex. `192.168.1.255`)
 2. Cliquez **Réveiller** — Bastion attend jusqu'à 2 min que la machine réponde
 
-Avec Docker, le service `wol-relay` (réseau host) envoie les paquets sur le LAN.
+En LXC, le conteneur est directement sur le LAN : Bastion émet les paquets
+lui-même, et l'installeur renseigne le broadcast détecté dans
+`BASTION_WOL_BROADCAST`.
+
+Avec Docker, le réseau bridge l'en empêche : c'est le service `wol-relay`
+(réseau host) qui s'en charge.
 
 ## Variables d'environnement
 
@@ -199,7 +204,7 @@ Avec Docker, le service `wol-relay` (réseau host) envoie les paquets sur le LAN
 | `BASTION_TRUST_PROXY` | Sauts de reverse-proxy à faire confiance (IP rate-limit) | désactivé |
 | `BASTION_ADMIN_USER` / `BASTION_ADMIN_PASSWORD` | Compte initial | `admin` / `admin` |
 | `WOL_RELAY_URL` / `WOL_RELAY_SECRET` | Relais WoL | voir `.env.example` |
-| `DATABASE_PATH` | Fichier JSON | `/app/data/bastion.json` |
+| `DATABASE_PATH` | Fichier JSON (backups et known_hosts vivent à côté) | `./data/bastion.json` — Docker : `/app/data`, LXC : `/var/lib/bastion` |
 
 ## Architecture
 
