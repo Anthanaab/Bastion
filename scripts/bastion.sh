@@ -751,6 +751,12 @@ SUMMARY
   ok "Terminé."
   echo "    Console       pct enter $CTID"
   echo "    Mise à jour   pct exec $CTID -- update"
+  if [[ -z "$CT_PASSWORD" ]]; then
+    echo
+    echo "    Aucun mot de passe root n'a été défini pour le conteneur."
+    echo "    'pct enter' suffit depuis l'hôte ; pour en définir un malgré"
+    echo "    tout : pct enter $CTID puis passwd."
+  fi
 }
 
 # ============================================================================
