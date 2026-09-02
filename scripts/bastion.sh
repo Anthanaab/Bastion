@@ -29,6 +29,12 @@ ENV_FILE="$CONF_DIR/bastion.env"
 SERVICE_USER="bastion"
 NODE_MAJOR=22
 
+# Debian a retiré guacamole-server après bullseye : `guacd` n'existe plus que
+# dans oldoldstable (1.3.0). Il est donc compilé depuis les sources Apache.
+# 1.6.0 sait se lier à FreeRDP 3, seul disponible à partir de Debian 13.
+GUACD_VERSION="${GUACD_VERSION:-1.6.0}"
+GUACD_TARBALL="https://archive.apache.org/dist/guacamole/${GUACD_VERSION}/source/guacamole-server-${GUACD_VERSION}.tar.gz"
+
 BL=$'\033[1;34m'; GN=$'\033[1;32m'; YW=$'\033[1;33m'; RD=$'\033[1;31m'; CY=$'\033[1;36m'; NC=$'\033[0m'
 msg()  { echo "${BL}[+]${NC} $*"; }
 ok()   { echo "${GN}[✓]${NC} $*"; }
@@ -54,14 +60,14 @@ container_install() {
 
   msg "Dépendances système…"
   export DEBIAN_FRONTEND=noninteractive
+  # pct exec propage le LANG de l'hôte, que le conteneur n'a pas généré :
+  # sans ça, apt et perl inondent la sortie d'avertissements de locale.
+  export LANG=C.UTF-8 LC_ALL=C.UTF-8
   apt-get update -qq
   apt-get install -y -qq --no-install-recommends \
     ca-certificates curl gnupg git openssl build-essential python3 >/dev/null
 
-  # guacd : démon Guacamole (RDP/VNC). Le client négocie VERSION_1_5_0, donc le
-  # paquet Debian 1.5.x convient — pas besoin de l'image Docker 1.6.0.
-  apt-get install -y -qq --no-install-recommends guacd >/dev/null 2>&1 \
-    || die "Paquet 'guacd' introuvable dans les dépôts de cette Debian."
+  install_guacd
 
   local current
   current=$(command -v node >/dev/null && node -v | sed 's/^v\([0-9]*\).*/\1/' || echo 0)
@@ -137,6 +143,96 @@ container_install() {
   else
     ok "Bastion mis à jour en $version — http://${ip}:${port}"
   fi
+}
+
+# guacd : démon Guacamole, indispensable au RDP et au VNC.
+install_guacd() {
+  # La recompilation prend plusieurs minutes : on la saute si la bonne version
+  # est déjà en place, sinon chaque `update` la referait.
+  if command -v guacd >/dev/null 2>&1 \
+     && guacd -v 2>&1 | grep -qF "$GUACD_VERSION"; then
+    ok "guacd $GUACD_VERSION déjà présent."
+    return 0
+  fi
+
+  # Ubuntu et Debian ≤ 11 le packagent encore.
+  if apt-get install -y -qq --no-install-recommends guacd >/dev/null 2>&1; then
+    ok "guacd installé depuis les dépôts."
+    return 0
+  fi
+
+  msg "guacd absent des dépôts — compilation de guacamole-server ${GUACD_VERSION}…"
+  msg "  (5 à 10 minutes, c'est normal qu'il ne se passe rien)"
+
+  apt-get install -y -qq --no-install-recommends \
+    libcairo2-dev libjpeg62-turbo-dev libpng-dev libtool-bin libossp-uuid-dev \
+    libavcodec-dev libavformat-dev libavutil-dev libswscale-dev \
+    libpango1.0-dev libssh2-1-dev libssl-dev libvorbis-dev libwebp-dev \
+    libtelnet-dev libvncserver-dev libwebsockets-dev libpulse-dev >/dev/null
+
+  # FreeRDP 3 à partir de Debian 13, FreeRDP 2 avant.
+  apt-get install -y -qq --no-install-recommends freerdp3-dev >/dev/null 2>&1 \
+    || apt-get install -y -qq --no-install-recommends freerdp2-dev >/dev/null 2>&1 \
+    || warn "Aucun paquet freerdp-dev : guacd sera construit sans RDP."
+
+  local build
+  build=$(mktemp -d)
+  curl -fsSL "$GUACD_TARBALL" -o "$build/src.tar.gz" \
+    || die "Téléchargement impossible : $GUACD_TARBALL"
+  tar xzf "$build/src.tar.gz" -C "$build"
+  (
+    cd "$build/guacamole-server-${GUACD_VERSION}"
+    ./configure --quiet --prefix=/usr/local >/dev/null
+    make -s -j"$(nproc)"
+    make -s install
+  ) || die "Échec de la compilation de guacamole-server."
+  ldconfig
+  rm -rf "$build"
+
+  # Les greffons manquants ne font pas échouer configure : il faut vérifier
+  # après coup quels protocoles ont réellement été construits.
+  local built=()
+  local proto
+  for proto in rdp vnc ssh; do
+    # `if` plutôt que `&&` : sous set -e, une dernière itération dont le test
+    # échoue ferait sortir la boucle en statut non nul et tuerait le script.
+    if [[ -f "/usr/local/lib/libguac-client-${proto}.so" ]]; then
+      built+=("$proto")
+    fi
+  done
+  [[ " ${built[*]} " == *" rdp "* ]] \
+    || warn "guacd construit SANS support RDP — vérifiez freerdp3-dev."
+  ok "guacd ${GUACD_VERSION} compilé (protocoles : ${built[*]:-aucun})."
+
+  id -u guacd >/dev/null 2>&1 \
+    || useradd --system --home-dir /var/lib/guacd --shell /usr/sbin/nologin guacd
+  install -d -m 0750 -o guacd -g guacd /var/lib/guacd
+
+  # L'unit fournie par les sources tourne en root ; celle-ci est alignée sur
+  # le durcissement de bastion.service.
+  cat > /etc/systemd/system/guacd.service <<'UNIT'
+[Unit]
+Description=Guacamole proxy daemon (guacd)
+After=network.target
+
+[Service]
+Type=simple
+User=guacd
+Group=guacd
+Environment=HOME=/var/lib/guacd
+ExecStart=/usr/local/sbin/guacd -b 127.0.0.1 -L info -f
+Restart=on-failure
+RestartSec=5
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/guacd
+
+[Install]
+WantedBy=multi-user.target
+UNIT
 }
 
 write_env_file() {
@@ -241,6 +337,7 @@ set -euo pipefail
 
 echo -e "\033[1;34m[+]\033[0m Mise à jour du système…"
 export DEBIAN_FRONTEND=noninteractive
+export LANG=C.UTF-8 LC_ALL=C.UTF-8
 apt-get update -qq && apt-get upgrade -y -qq && apt-get autoremove -y -qq
 
 echo -e "\033[1;34m[+]\033[0m Mise à jour de Bastion…"
@@ -401,7 +498,7 @@ CT_HOSTNAME="${CT_HOSTNAME:-bastion}"
 CORES="${CORES:-2}"
 RAM="${RAM:-2048}"
 SWAP="${SWAP:-512}"
-DISK="${DISK:-8}"
+DISK="${DISK:-10}"
 STORAGE="${STORAGE:-}"
 TEMPLATE_STORAGE="${TEMPLATE_STORAGE:-}"
 BRIDGE="${BRIDGE:-vmbr0}"
@@ -438,7 +535,7 @@ wizard() {
   local choice
   choice=$(W --title "Installation" --menu \
     "Comment configurer le conteneur ?" 13 70 2 \
-    "defaut" "Paramètres recommandés (2 vCPU, 2 Go, 8 Go, DHCP)" \
+    "defaut" "Paramètres recommandés (2 vCPU, 2 Go, 10 Go, DHCP)" \
     "avance" "Choisir chaque paramètre") || die "Installation annulée."
   [[ "$choice" == "defaut" ]] && return 0
 
@@ -600,7 +697,7 @@ SUMMARY
 
   if [[ "$ENABLE_SSH" == "1" ]]; then
     msg "Installation du serveur SSH…"
-    pct exec "$CTID" -- bash -c "DEBIAN_FRONTEND=noninteractive apt-get update -qq && apt-get install -y -qq openssh-server >/dev/null && systemctl enable --now ssh"
+    pct exec "$CTID" -- bash -c "export DEBIAN_FRONTEND=noninteractive LANG=C.UTF-8 LC_ALL=C.UTF-8; apt-get update -qq && apt-get install -y -qq openssh-server >/dev/null && systemctl enable --now ssh"
   fi
 
   msg "Installation de Bastion dans le conteneur…"
@@ -675,6 +772,7 @@ case "${1:-}" in
   --update)
     need_root
     export DEBIAN_FRONTEND=noninteractive
+    export LANG=C.UTF-8 LC_ALL=C.UTF-8
     msg "Mise à jour du système…"
     apt-get update -qq && apt-get upgrade -y -qq && apt-get autoremove -y -qq
     container_install

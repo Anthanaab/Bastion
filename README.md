@@ -12,7 +12,7 @@ Depuis le shell de l'hôte Proxmox :
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/Anthanaab/Bastion/main/scripts/bastion.sh)"
 ```
 
-Un assistant propose **Paramètres recommandés** (2 vCPU / 2 Go / 8 Go, DHCP,
+Un assistant propose **Paramètres recommandés** (2 vCPU / 2 Go / 10 Go, DHCP,
 mot de passe admin généré) ou **Paramètres avancés** : CTID, nom d'hôte, CPU,
 RAM, disque, stockage, pont réseau, IP fixe ou DHCP, mot de passe root, serveur
 SSH, puis port HTTP, compte admin et URL publique si Bastion passe derrière un
@@ -20,6 +20,11 @@ reverse-proxy HTTPS.
 
 Le script crée ensuite un conteneur Debian non privilégié, y installe Node 22,
 `guacd` et Bastion, génère les secrets et affiche l'URL et le mot de passe admin.
+
+Comptez une quinzaine de minutes à la première installation : Debian ayant
+retiré `guacamole-server` de ses dépôts après bullseye, `guacd` est compilé
+depuis les sources Apache (5 à 10 min), auxquelles s'ajoute le build de
+Bastion. Les mises à jour suivantes ne recompilent pas `guacd`.
 
 Sans assistant (CI, ou `whiptail` absent), tout est surchargeable par variable :
 `CTID`, `CT_HOSTNAME`, `CORES`, `RAM`, `DISK`, `STORAGE`, `BRIDGE`, `ENABLE_SSH`,
